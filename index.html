@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>StudyRPG 2.0</title>
+  <link rel="stylesheet" href="css/app.css">
+  <script type="importmap">
+  {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js"}}
+  </script>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div><strong>StudyRPG 2.0</strong><small id="todayLabel"></small></div>
+      <div class="chips"><span id="levelChip"></span><span id="powerChip"></span></div>
+    </header>
+
+    <nav class="nav" aria-label="主要功能">
+      <button data-view="status" class="active">狀態</button>
+      <button data-view="tasks">待辦</button>
+      <button data-view="calendar">行事曆</button>
+      <button data-view="schedule">課表</button>
+      <button data-view="dungeon">副本</button>
+      <button data-view="renderer">場景測試</button>
+      <button data-view="parent">家長</button>
+    </nav>
+
+    <section id="view-status" class="view active"></section>
+    <section id="view-tasks" class="view"></section>
+    <section id="view-calendar" class="view"></section>
+    <section id="view-schedule" class="view"></section>
+    <section id="view-dungeon" class="view"></section>
+    <section id="view-renderer" class="view"><div class="card"><h2>Three.js 2.5D Renderer Prototype</h2><div id="threeStage" class="three-stage"></div><div class="renderer-toolbar"><button id="threeAttack" class="primary">近戰</button><button id="threeCast">魔法</button><button id="threeSummon">召喚</button><button id="threeReset">重置</button></div><p class="muted">可直接拖曳 HERO / ENEMY。世界座標由 Three.js 管理，不寫在 CSS。</p><div id="threeDebug" class="notice"></div></div></section>
+    <section id="view-parent" class="view"></section>
+  </main>
+
+  <script type="module" src="js/core/app.js"></script>
+</body>
+</html>
