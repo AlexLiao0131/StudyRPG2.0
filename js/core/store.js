@@ -18,7 +18,8 @@ function normalizeHero(raw={},fallback={}){
     gold:Math.max(0,Number(raw.gold)||0),lotteryCoins:Math.max(0,Number(raw.lotteryCoins)||0),virtue:Math.max(0,Number(raw.virtue)||0),
     stats:{str:Number(stats.str)||0,agi:Number(stats.agi)||0,int:Number(stats.int)||0,will:Number(stats.will)||0},
     jobScores:obj(raw.jobScores),knownSkills:arr(raw.knownSkills),skills:arr(raw.skills),equippedSkills:arr(raw.equippedSkills),
-    jobPassive:String(raw.jobPassive||''),pendingGoldDebt:Math.max(0,Number(raw.pendingGoldDebt)||0),lastStatGains:obj(raw.lastStatGains),equipment:obj(raw.equipment||fallback.equipment)
+    jobPassive:String(raw.jobPassive||''),skillUsage:obj(raw.skillUsage),skillUsageByDate:obj(raw.skillUsageByDate),jobCandidateHistory:arr(raw.jobCandidateHistory),
+    pendingGoldDebt:Math.max(0,Number(raw.pendingGoldDebt)||0),lastStatGains:obj(raw.lastStatGains),equipment:obj(raw.equipment||fallback.equipment)
   };
 }
 
@@ -66,21 +67,20 @@ function normalize(raw){
   };
 }
 
-export function initStore(){
-  let saved=null;try{saved=JSON.parse(localStorage.getItem(APP_CONFIG.storageKey))}catch{}
-  state=normalize(saved||readLegacyState()||createDefaultState());
-  save();
-  return state;
-}
+export function initStore(){let saved=null;try{saved=JSON.parse(localStorage.getItem(APP_CONFIG.storageKey))}catch{}state=normalize(saved||readLegacyState()||createDefaultState());save();return state}
 export function getState(){return state}
 export function getFamily(){return state.family}
-export function getActiveProfile(){
-  const f=getFamily();let p=f.profiles.find(x=>x.id===f.activeProfileId);
-  if(!p){p=f.profiles[0];f.activeProfileId=p.id}return p;
-}
+export function getActiveProfile(){const f=getFamily();let p=f.profiles.find(x=>x.id===f.activeProfileId);if(!p){p=f.profiles[0];f.activeProfileId=p.id}return p}
 export function getGame(){return getActiveProfile().data}
 export function save(){localStorage.setItem(APP_CONFIG.storageKey,JSON.stringify(state))}
 export function update(mutator){mutator(state);save();for(const fn of [...listeners])fn(state)}
 export function subscribe(fn){listeners.add(fn);return()=>listeners.delete(fn)}
 export function switchProfile(id){if(!getFamily().profiles.some(p=>p.id===id))return false;update(s=>s.family.activeProfileId=id);return true}
+export function addProfile({name,gender='male'}={}){
+  name=String(name||'').trim();if(!name)return{ok:false,message:'請輸入勇者名稱。'};
+  const base=createDefaultState().family.profiles[0].data,id=`hero_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+  base.hero.name=name;base.hero.gender=gender==='female'?'female':'male';
+  update(s=>{s.family.profiles.push({id,label:name,data:base});s.family.activeProfileId=id});
+  return{ok:true,message:`已建立 ${name}。`,profileId:id};
+}
 export function resetV2(){localStorage.removeItem(APP_CONFIG.storageKey);state=null;return initStore()}
