@@ -5,6 +5,7 @@ function clone(v){return v==null?v:JSON.parse(JSON.stringify(v))}
 function safeParse(raw){try{return JSON.parse(raw)}catch{return null}}
 function array(v){return Array.isArray(v)?clone(v):[]}
 function object(v){return v&&typeof v==='object'&&!Array.isArray(v)?clone(v):{}}
+const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 
 function migrateHero(raw={},fallback={}){
   const stats=raw.stats&&typeof raw.stats==='object'?raw.stats:{};
@@ -22,6 +23,21 @@ function migrateHero(raw={},fallback={}){
   };
 }
 
+function migrateCampaignProgress(raw={}){
+  const progress=object(raw.campaignProgress);
+  if(!progress.phaseHistory||typeof progress.phaseHistory!=='object'||Array.isArray(progress.phaseHistory))progress.phaseHistory={};
+  const legacyRatio=Number(raw.storyFlags?.demonKingPhase1DamageRatio);
+  if(Number.isFinite(legacyRatio)){
+    const scopeKey=String(raw.semester?.startDate||'legacy'),scoped=progress.phaseHistory[scopeKey]=object(progress.phaseHistory[scopeKey]),chain=scoped.demon_king=object(scoped.demon_king);
+    chain.chainId='demon_king';chain.scopeKey=scopeKey;chain.phases=object(chain.phases);
+    if(!chain.phases.demon_king_phase1){
+      chain.phases.demon_king_phase1={monsterId:'demon_king_phase1',phaseNumber:1,result:'legacy',date:'',eventType:'daily',rounds:0,enemyHp:0,enemyMaxHp:0,enemyDamageRatio:clamp(legacyRatio,0,1),heroHp:0,heroMaxHp:0,recordedAt:new Date().toISOString(),importedFrom:'storyFlags.demonKingPhase1DamageRatio'};
+      chain.lastMonsterId='demon_king_phase1';chain.lastPhaseNumber=1;chain.updatedAt=chain.phases.demon_king_phase1.recordedAt;
+    }
+  }
+  return progress;
+}
+
 function migrateGame(raw={},fallback={}){
   const tombstones=object(raw.inventoryTombstones),inventory=array(raw.inventory).filter(inv=>!inv?.id||!Object.prototype.hasOwnProperty.call(tombstones,String(inv.id)));
   const semester=raw.semester&&typeof raw.semester==='object'?raw.semester:{};
@@ -37,7 +53,7 @@ function migrateGame(raw={},fallback={}){
       worldState:String(semester.worldState||fallback.semester?.worldState||'normal')
     },
     tasks:array(raw.tasks),taskRecords:array(raw.taskRecords),activeTasks:{},learningProgress:array(raw.learningProgress),
-    inventory,inventoryTombstones:tombstones,shopItems:array(raw.shopItems),lotteryPool:array(raw.lotteryPool),lotteryCoinLedger:object(raw.lotteryCoinLedger),couponRequests:array(raw.couponRequests),battleRecords:array(raw.battleRecords),gmAudit:array(raw.gmAudit),semesterArchives:array(raw.semesterArchives),campaignProgress:object(raw.campaignProgress),
+    inventory,inventoryTombstones:tombstones,shopItems:array(raw.shopItems),lotteryPool:array(raw.lotteryPool),lotteryCoinLedger:object(raw.lotteryCoinLedger),couponRequests:array(raw.couponRequests),battleRecords:array(raw.battleRecords),gmAudit:array(raw.gmAudit),semesterArchives:array(raw.semesterArchives),campaignProgress:migrateCampaignProgress(raw),
     social:{friends:array(raw.social?.friends),inbox:array(raw.social?.inbox)},
     settings:{parentPinHash:String(settings.parentPinHash||''),cloud:object(settings.cloud),familyAccess:object(settings.familyAccess||{enabled:true}),holidayTower:object(settings.holidayTower||{dailyLimit:3})},
     dailyBalance:clone(raw.dailyBalance||raw.dailyBalanceV10114||null),
