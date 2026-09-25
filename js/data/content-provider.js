@@ -1,9 +1,38 @@
 import { APP_CONFIG } from './app-config.js';
 
 let loading=null;
+let normalizedSource=null;
+let normalizedDatabase=null;
+
+const LEGACY_MONSTER_SKILL_OVERRIDES=Object.freeze({
+  // 1.0 Runtime 對這兩個護盾固定套用 35% 減傷，但舊 skill-database 缺少宣告欄位。
+  // Migration 階段在 Provider 補成正式資料，避免 BattleEngine 再靠 skill id 判斷。
+  golden_shield:{damageTakenMultiplier:.65,duration:2},
+  mana_shield:{damageTakenMultiplier:.65,duration:2}
+});
+
+function normalizeContentDatabase(source){
+  if(!source)return null;
+  if(source===normalizedSource&&normalizedDatabase)return normalizedDatabase;
+
+  const monsterSkills={...(source.monsterSkills||{})};
+  for(const [id,override] of Object.entries(LEGACY_MONSTER_SKILL_OVERRIDES)){
+    const original=monsterSkills[id];
+    if(!original)continue;
+    const normalized={...original};
+    for(const [key,value] of Object.entries(override)){
+      if(normalized[key]==null)normalized[key]=value;
+    }
+    monsterSkills[id]=normalized;
+  }
+
+  normalizedSource=source;
+  normalizedDatabase={...source,monsterSkills};
+  return normalizedDatabase;
+}
 
 export function currentContentDatabase(){
-  return globalThis.STUDYRPG_SKILL_DATABASE||null;
+  return normalizeContentDatabase(globalThis.STUDYRPG_SKILL_DATABASE||null);
 }
 
 export async function ensureContentDatabase(){
