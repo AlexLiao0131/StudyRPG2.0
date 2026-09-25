@@ -1,10 +1,9 @@
 import { getGame, update } from '../core/store.js';
 import { localDateString, weekdayNumber } from '../core/date.js';
 import { autoTaskRewards } from '../progression/combat-power.js';
-import { grantRewardBundle, reclaimRewardBundle } from '../progression/reward-service.js';
+import { grantRewardBundle, reclaimRewardBundle, addExperience } from '../progression/reward-service.js';
 
 const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
-const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
 const uid=()=>`r_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
 const STAT_KEYS=new Set(['str','agi','int','will','virtue']);
 
@@ -24,74 +23,19 @@ function taskById(id){return(getGame().tasks||[]).find(x=>String(x.id)===String(
 function completionLimit(t){return Math.max(1,Number(t?.dailyLimit)||1)}
 function canComplete(t){return !!t&&recordsForTaskToday(t.id).length<completionLimit(t)}
 function result(ok,message,data={}){return{ok,message,...data}}
-
-function manualRewardMap(t){
-  const out={};const src=t?.manualStatRewards&&typeof t.manualStatRewards==='object'?t.manualStatRewards:null;
-  if(src){for(const [k,v] of Object.entries(src))if(STAT_KEYS.has(k)&&Number(v)>0)out[k]=Math.max(0,Number(v)||0)}
-  if(!Object.keys(out).length){
-    const a=String(t?.fixedStat||'will'),av=Math.max(0,Number(t?.fixedStatValue)||0),b=String(t?.fixedStat2||''),bv=Math.max(0,Number(t?.fixedStatValue2)||0);
-    if(STAT_KEYS.has(a)&&av)out[a]=av;if(STAT_KEYS.has(b)&&bv)out[b]=(out[b]||0)+bv;
-  }
-  return out;
-}
+function manualRewardMap(t){const out={};const src=t?.manualStatRewards&&typeof t.manualStatRewards==='object'?t.manualStatRewards:null;if(src){for(const [k,v] of Object.entries(src))if(STAT_KEYS.has(k)&&Number(v)>0)out[k]=Math.max(0,Number(v)||0)}if(!Object.keys(out).length){const a=String(t?.fixedStat||'will'),av=Math.max(0,Number(t?.fixedStatValue)||0),b=String(t?.fixedStat2||''),bv=Math.max(0,Number(t?.fixedStatValue2)||0);if(STAT_KEYS.has(a)&&av)out[a]=av;if(STAT_KEYS.has(b)&&bv)out[b]=(out[b]||0)+bv}return out}
 function baseStatRewards(t){return (t?.rewardMode||'auto')==='auto'?autoTaskRewards(t?.category||'custom',t?.difficulty||'normal'):manualRewardMap(t)}
 function scaleMap(map,multiplier=1){const out={};for(const[k,v]of Object.entries(map||{})){const n=Math.max(0,Math.round((Number(v)||0)*multiplier));if(n)out[k]=n}return out}
-function timerTier(t,minutes){
-  const a=Number(t?.fastMinutes)||30,b=Number(t?.standardMinutes)||60,low=Math.min(a,b),high=Math.max(a,b),mode=t?.timerMode||'deadline';
-  if(mode==='duration'){
-    if(minutes>=high)return{key:'excellent',label:'🌟 深度投入',multiplier:1.5,agiBonus:0};
-    if(minutes>=low)return{key:'good',label:'✨ 達成練習時間',multiplier:1.2,agiBonus:0};
-    return{key:'normal',label:'✅ 完成',multiplier:1,agiBonus:0};
-  }
-  if(minutes<=low)return{key:'excellent',label:'🌟 優秀完成',multiplier:1.5,agiBonus:2};
-  if(minutes<=high)return{key:'good',label:'✨ 快速完成',multiplier:1.2,agiBonus:1};
-  return{key:'normal',label:'✅ 完成',multiplier:1,agiBonus:0};
-}
+function timerTier(t,minutes){const a=Number(t?.fastMinutes)||30,b=Number(t?.standardMinutes)||60,low=Math.min(a,b),high=Math.max(a,b),mode=t?.timerMode||'deadline';if(mode==='duration'){if(minutes>=high)return{key:'excellent',label:'🌟 深度投入',multiplier:1.5,agiBonus:0};if(minutes>=low)return{key:'good',label:'✨ 達成練習時間',multiplier:1.2,agiBonus:0};return{key:'normal',label:'✅ 完成',multiplier:1,agiBonus:0}}if(minutes<=low)return{key:'excellent',label:'🌟 優秀完成',multiplier:1.5,agiBonus:2};if(minutes<=high)return{key:'good',label:'✨ 快速完成',multiplier:1.2,agiBonus:1};return{key:'normal',label:'✅ 完成',multiplier:1,agiBonus:0}}
 function scoreTier(score,max){const p=max>0?score/max:0;return p>=.9?{grade:'S',multiplier:1}:p>=.8?{grade:'A',multiplier:.9}:p>=.7?{grade:'B',multiplier:.8}:p>=.6?{grade:'C',multiplier:.7}:{grade:'D',multiplier:.6}}
 function recordProgress(g,t,progress){if(!(t.subject||t.progressType||t.progressValue))return;g.learningProgress=g.learningProgress||[];g.learningProgress.push({id:`lp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,date:localDateString(),subject:t.subject||'',item:t.progressType||t.name,progress:progress||t.progressValue||'完成'})}
-function issueCompletion(t,{gold,exp,stats,recordExtra={},progressText='完成'}={}){
-  let created=null,levels=0;
-  update(()=>{
-    const g=getGame(),live=(g.tasks||[]).find(x=>String(x.id)===String(t.id));if(!live||!canComplete(live))return;
-    const granted=grantRewardBundle(g.hero,{gold,exp,stats});levels=granted.levels;
-    created={id:uid(),taskId:live.id,date:localDateString(),status:'completed',completedAt:new Date().toISOString(),taskType:live.taskType||'complete',rewards:{gold:Math.max(0,Math.round(Number(gold)||0)),exp:Math.max(0,Math.round(Number(exp)||0)),statGain:clone(stats||{}),...recordExtra.rewards},rollback:{gold:Math.max(0,Math.round(Number(gold)||0)),exp:Math.max(0,Math.round(Number(exp)||0)),statGain:clone(stats||{})},approvalStatus:'pending',approvalRatio:0,taskSnapshot:clone(live),...recordExtra};
-    g.taskRecords.push(created);recordProgress(g,live,progressText);
-  });
-  return created?result(true,levels?`完成！獎勵已發放，等待家長核定。並升級 ${levels} 級。`:'完成！獎勵已發放，等待家長核定。',{record:created}):result(false,'今天已達完成上限。');
-}
-
-export function completeSimpleTask(id){
-  const t=taskById(id);if(!t)return result(false,'找不到任務。');if(!canComplete(t))return result(false,'今天已達完成上限。');
-  const stats=baseStatRewards(t);return issueCompletion(t,{gold:Number(t.goldReward)||0,exp:Number(t.expReward)||0,stats});
-}
-export function startTimedTask(id){
-  const t=taskById(id);if(!t)return result(false,'找不到任務。');if(t.taskType!=='timer')return result(false,'這不是計時任務。');if(!canComplete(t))return result(false,'今天已達完成上限。');if(activeTaskStart(id))return result(false,'這個任務已經在計時。');
-  update(()=>{const g=getGame();g.activeTasks=g.activeTasks||{};g.activeTasks[id]=Date.now()});return result(true,'計時開始。');
-}
+function issueCompletion(t,{gold,exp,stats,recordExtra={},progressText='完成'}={}){let created=null,levels=0;update(()=>{const g=getGame(),live=(g.tasks||[]).find(x=>String(x.id)===String(t.id));if(!live||!canComplete(live))return;const granted=grantRewardBundle(g.hero,{gold,exp,stats});levels=granted.levels;created={id:uid(),taskId:live.id,date:localDateString(),status:'completed',completedAt:new Date().toISOString(),taskType:live.taskType||'complete',rewards:{gold:Math.max(0,Math.round(Number(gold)||0)),exp:Math.max(0,Math.round(Number(exp)||0)),statGain:clone(stats||{}),...recordExtra.rewards},rollback:{gold:Math.max(0,Math.round(Number(gold)||0)),exp:Math.max(0,Math.round(Number(exp)||0)),statGain:clone(stats||{})},approvalStatus:'pending',approvalRatio:0,taskSnapshot:clone(live),...recordExtra};g.taskRecords.push(created);recordProgress(g,live,progressText)});return created?result(true,levels?`完成！獎勵已發放，等待家長核定。並升級 ${levels} 級。`:'完成！獎勵已發放，等待家長核定。',{record:created}):result(false,'今天已達完成上限。')}
+export function completeSimpleTask(id){const t=taskById(id);if(!t)return result(false,'找不到任務。');if(!canComplete(t))return result(false,'今天已達完成上限。');return issueCompletion(t,{gold:Number(t.goldReward)||0,exp:Number(t.expReward)||0,stats:baseStatRewards(t)})}
+export function startTimedTask(id){const t=taskById(id);if(!t)return result(false,'找不到任務。');if(t.taskType!=='timer')return result(false,'這不是計時任務。');if(!canComplete(t))return result(false,'今天已達完成上限。');if(activeTaskStart(id))return result(false,'這個任務已經在計時。');update(()=>{const g=getGame();g.activeTasks=g.activeTasks||{};g.activeTasks[id]=Date.now()});return result(true,'計時開始。')}
 export function cancelTimedTask(id){if(!activeTaskStart(id))return result(false,'目前沒有進行中的計時。');update(()=>{delete getGame().activeTasks[id]});return result(true,'已取消本次計時，不發放獎勵。')}
-export function finishTimedTask(id){
-  const t=taskById(id),start=activeTaskStart(id);if(!t)return result(false,'找不到任務。');if(!start)return result(false,'請先開始計時。');if(!canComplete(t)){update(()=>{delete getGame().activeTasks[id]});return result(false,'今天已達完成上限。')}
-  const minutes=Math.max(0,(Date.now()-start)/60000),tier=timerTier(t,minutes),stats=baseStatRewards(t);
-  if((t.rewardMode||'auto')==='auto'&&tier.agiBonus)stats.agi=(stats.agi||0)+tier.agiBonus;
-  update(()=>{delete getGame().activeTasks[id]});
-  return issueCompletion(t,{gold:Math.round((Number(t.goldReward)||0)*tier.multiplier),exp:Math.round((Number(t.expReward)||0)*tier.multiplier),stats,recordExtra:{startedAt:new Date(start).toISOString(),durationMinutes:minutes,rewards:{baseGold:Number(t.goldReward)||0,baseExp:Number(t.expReward)||0,timerTier:tier.key}},progressText:`${minutes.toFixed(1)} 分鐘`});
-}
-export function completeQuantityTask(id,amount){
-  const t=taskById(id);if(!t)return result(false,'找不到任務。');const target=Math.max(1,Number(t.quantityTarget)||1),n=Number(amount);if(!Number.isFinite(n)||n<target)return result(false,`目標是 ${target} ${t.quantityUnit||'次'}。`);if(!canComplete(t))return result(false,'今天已達完成上限。');
-  return issueCompletion(t,{gold:Number(t.goldReward)||0,exp:Number(t.expReward)||0,stats:baseStatRewards(t),recordExtra:{quantity:n,quantityTarget:target,quantityUnit:t.quantityUnit||'次'},progressText:`${n} ${t.quantityUnit||'次'}`});
-}
-export function completeScoreTask(id,score){
-  const t=taskById(id);if(!t)return result(false,'找不到任務。');const max=Math.max(1,Number(t.scoreMax)||100),n=Number(score);if(!Number.isFinite(n)||n<0||n>max)return result(false,`請輸入 0～${max} 的分數。`);if(!canComplete(t))return result(false,'今天已達完成上限。');
-  const tier=scoreTier(n,max),stats=scaleMap(baseStatRewards(t),tier.multiplier);return issueCompletion(t,{gold:Math.round((Number(t.goldReward)||0)*tier.multiplier),exp:Math.round((Number(t.expReward)||0)*tier.multiplier),stats,recordExtra:{score:n,scoreMax:max,scoreGrade:tier.grade,scoreMultiplier:tier.multiplier},progressText:`${n}/${max}（${tier.grade}）`});
-}
-
+export function finishTimedTask(id){const t=taskById(id),start=activeTaskStart(id);if(!t)return result(false,'找不到任務。');if(!start)return result(false,'請先開始計時。');if(!canComplete(t)){update(()=>{delete getGame().activeTasks[id]});return result(false,'今天已達完成上限。')}const minutes=Math.max(0,(Date.now()-start)/60000),tier=timerTier(t,minutes),stats=baseStatRewards(t);if((t.rewardMode||'auto')==='auto'&&tier.agiBonus)stats.agi=(stats.agi||0)+tier.agiBonus;update(()=>{delete getGame().activeTasks[id]});return issueCompletion(t,{gold:Math.round((Number(t.goldReward)||0)*tier.multiplier),exp:Math.round((Number(t.expReward)||0)*tier.multiplier),stats,recordExtra:{startedAt:new Date(start).toISOString(),durationMinutes:minutes,rewards:{baseGold:Number(t.goldReward)||0,baseExp:Number(t.expReward)||0,timerTier:tier.key}},progressText:`${minutes.toFixed(1)} 分鐘`})}
+export function completeQuantityTask(id,amount){const t=taskById(id);if(!t)return result(false,'找不到任務。');const target=Math.max(1,Number(t.quantityTarget)||1),n=Number(amount);if(!Number.isFinite(n)||n<target)return result(false,`目標是 ${target} ${t.quantityUnit||'次'}。`);if(!canComplete(t))return result(false,'今天已達完成上限。');return issueCompletion(t,{gold:Number(t.goldReward)||0,exp:Number(t.expReward)||0,stats:baseStatRewards(t),recordExtra:{quantity:n,quantityTarget:target,quantityUnit:t.quantityUnit||'次'},progressText:`${n} ${t.quantityUnit||'次'}`})}
+export function completeScoreTask(id,score){const t=taskById(id);if(!t)return result(false,'找不到任務。');const max=Math.max(1,Number(t.scoreMax)||100),n=Number(score);if(!Number.isFinite(n)||n<0||n>max)return result(false,`請輸入 0～${max} 的分數。`);if(!canComplete(t))return result(false,'今天已達完成上限。');const tier=scoreTier(n,max),stats=scaleMap(baseStatRewards(t),tier.multiplier);return issueCompletion(t,{gold:Math.round((Number(t.goldReward)||0)*tier.multiplier),exp:Math.round((Number(t.expReward)||0)*tier.multiplier),stats,recordExtra:{score:n,scoreMax:max,scoreGrade:tier.grade,scoreMultiplier:tier.multiplier},progressText:`${n}/${max}（${tier.grade}）`})}
+export function correctScoreTask(taskId,recordId,correctedScore){let corrected=null;update(()=>{const g=getGame(),t=(g.tasks||[]).find(x=>String(x.id)===String(taskId)),r=(g.taskRecords||[]).find(x=>String(x.id)===String(recordId));if(!t||!r||r.corrected||t.allowCorrection===false)return;const max=Math.max(1,Number(r.scoreMax)||Number(t.scoreMax)||100),n=Number(correctedScore);if(!Number.isFinite(n)||n<0||n>max){corrected={error:`請輸入 0～${max} 的訂正後分數。`};return}if(n<=Number(r.score||0)){corrected={error:'訂正後分數要高於第一次成績才會發放訂正獎勵。'};return}const bonus=Math.max(0,Number(t.correctionExp)||0);addExperience(g.hero,bonus);r.corrected=true;r.correctedScore=n;r.correctedAt=new Date().toISOString();r.correctionExp=bonus;r.rollback=r.rollback||{};r.rollback.correctionExp=bonus;if(t.subject||t.progressType||t.progressValue){g.learningProgress=g.learningProgress||[];g.learningProgress.push({id:`lp_${Date.now().toString(36)}`,date:localDateString(),subject:t.subject||'',item:(t.progressType||t.name)+'・訂正',progress:`${r.score} → ${n}/${max}`})}corrected={record:r,bonus,max}});if(!corrected)return result(false,'找不到可訂正的成績紀錄。');if(corrected.error)return result(false,corrected.error);return result(true,`✨ 訂正完成！ ${corrected.record.score} → ${corrected.record.correctedScore}/${corrected.max}，EXP +${corrected.bonus}。`,{record:corrected.record})}
 function rollbackBundle(r){const rb=r?.rollback||{};let stats=rb.statGain||r?.rewards?.statGain||{};if(stats?.multi&&stats.gains)stats=stats.gains;if(stats?.stat)stats={[stats.stat]:Number(stats.value)||0};return{gold:Math.max(0,Number(rb.gold??r?.rewards?.gold)||0),exp:Math.max(0,(Number(rb.exp??r?.rewards?.exp)||0)+(Number(rb.correctionExp)||0)),stats:stats&&typeof stats==='object'?stats:{}}}
-export function reviewTaskRecord(recordId,ratio){
-  ratio=ratio===true?1:ratio===false?0:Number(ratio);if(![1,.8,.5,0].includes(ratio))return result(false,'核定比例不正確。');let reviewed=null;
-  update(()=>{
-    const g=getGame(),r=(g.taskRecords||[]).find(x=>String(x.id)===String(recordId));if(!r||r.approvalStatus!=='pending')return;
-    const kept=reclaimRewardBundle(g.hero,rollbackBundle(r),ratio);r.approvalRatio=ratio;r.approvalPercent=Math.round(ratio*100);r.approvedAt=new Date().toISOString();r.approvedRewards={gold:kept.gold,exp:kept.exp,statGain:kept.stats};r.approvalStatus=ratio>0?'approved':'rejected';if(ratio===0)r.rejectedAt=r.approvedAt;
-    if(ratio===1&&r.rewards?.timerTier==='excellent'&&Math.random()<.08)g.hero.lotteryCoins=Math.max(0,Number(g.hero.lotteryCoins)||0)+1;reviewed=r;
-  });
-  return reviewed?result(true,ratio?`已核定 ${Math.round(ratio*100)}%。`:'已退回 0%。',{record:reviewed}):result(false,'這筆紀錄已處理或不存在。');
-}
+export function reviewTaskRecord(recordId,ratio){ratio=ratio===true?1:ratio===false?0:Number(ratio);if(![1,.8,.5,0].includes(ratio))return result(false,'核定比例不正確。');let reviewed=null;update(()=>{const g=getGame(),r=(g.taskRecords||[]).find(x=>String(x.id)===String(recordId));if(!r||r.approvalStatus!=='pending')return;const kept=reclaimRewardBundle(g.hero,rollbackBundle(r),ratio);r.approvalRatio=ratio;r.approvalPercent=Math.round(ratio*100);r.approvedAt=new Date().toISOString();r.approvedRewards={gold:kept.gold,exp:kept.exp,statGain:kept.stats};r.approvalStatus=ratio>0?'approved':'rejected';if(ratio===0)r.rejectedAt=r.approvedAt;if(ratio===1&&r.rewards?.timerTier==='excellent'&&Math.random()<.08)g.hero.lotteryCoins=Math.max(0,Number(g.hero.lotteryCoins)||0)+1;reviewed=r});return reviewed?result(true,ratio?`已核定 ${Math.round(ratio*100)}%。`:'已退回 0%。',{record:reviewed}):result(false,'這筆紀錄已處理或不存在。')}
