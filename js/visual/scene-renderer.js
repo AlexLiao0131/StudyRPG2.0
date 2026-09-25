@@ -33,9 +33,9 @@ export function dungeonFighterSceneHTML({side='hero',monsterId='',dateStr=localD
 export function applySceneLayout(root=document){
   const d=visualDevice(),week=semesterWeekIndex(),deviceCfg=VISUAL_CONFIG.devices[d];if(!deviceCfg)return;
   root.querySelectorAll('[data-scene]').forEach(sceneEl=>{
-    const scene=sceneEl.dataset.scene, cfg=deviceCfg[scene]; if(!cfg)return;
+    const scene=sceneEl.dataset.scene,cfg=deviceCfg[scene];if(!cfg)return;
     const hero=sceneEl.querySelector('[data-actor="hero"]');if(hero&&cfg.hero){const p=anchorPosition(cfg.hero,scene,d,week);hero.style.left=`${p.x}%`;hero.style.top=`${p.y}%`;hero.style.width=`${cfg.heroSize}px`;hero.style.height=`${cfg.heroSize}px`}
-    const enemy=sceneEl.querySelector('[data-actor="enemy"]');if(enemy&&cfg.enemy){const p=anchorPosition(cfg.enemy,scene,d,week);enemy.style.left=`${p.x}%`;enemy.style.top=`${p.y}%`;enemy.style.width=`${cfg.enemySize}px`;enemy.style.height=`${cfg.enemySize}px`}
+    const enemies=[...sceneEl.querySelectorAll('[data-actor="enemy"]')];if(enemies.length&&cfg.enemy){const p=anchorPosition(cfg.enemy,scene,d,week),slots=Array.isArray(cfg.enemySlotOffsets)?cfg.enemySlotOffsets:[0,-12,9,-22];enemies.forEach((enemy,i)=>{enemy.style.left=`${p.x+Number(slots[i]??(-10*i))}%`;enemy.style.top=`${p.y}%`;enemy.style.width=`${cfg.enemySize}px`;enemy.style.height=`${cfg.enemySize}px`;enemy.style.zIndex=String(4+i)})}
     const bg=sceneEl.querySelector('.scene-background'),b=VISUAL_CONFIG.stage[d]?.bg;if(bg&&b)bg.style.transform=`translate(${Number(b.x??50)-50}%,${Number(b.y??50)-50}%) scale(${Number(b.scale)||1})`;
   });
 }
