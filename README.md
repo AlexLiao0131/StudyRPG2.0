@@ -1,40 +1,48 @@
-# StudyRPG 2.0 — Clean Rebuild
+# StudyRPG 2.0 — 1.0 Architecture Refactor / Phase 1
 
-這不是把 1.0 的 65 萬字 `index.html` 拆檔，而是依 1.0 現行規則重新建立乾淨架構。
+這不是重新設計 StudyRPG。這一批以目前 GitHub `main/index.html` 的 1.0 產品架構為規格，先把最容易被補丁污染的 World / Visual / Status / Exam / Calendar / Tasks / Dungeon 拆出正式模組。
 
-## 本版已落地
-- 行事曆、課表、待辦三個現實資料來源分離。
-- Task definition 與每日 occurrence 分離，取消某一天不會修改 recurring task 本體。
-- Ability Engine：沿用 1.0 的自動任務能力分配概念。
-- 角色裸四維戰力：STR×1.2 + AGI×1.1 + INT×1.0 + WILL×0.8。
-- 每日副本：沿用現行穩定核心，A=今日零完成、B=今日全完成；普通 50%，週五 70%；建立當日 snapshot 後不因完成而往下追玩家。
-- 期中/期末：沿用 1.0 現行核心，課表累積時數 × 各科戰力/小時 × 75%，期中 ×1.10、期末 ×1.20，Boss lock 與 Exam Energy target 分離。
-- UI 完全重建，沒有 V10.x 版本函式、override、wrapper 或補丁 CSS。
+## 本批已完成
+- 1.0 的 8 個主入口與狀態頁資訊架構保留。
+- 21 週 `WEEKLY_WORLDS` 單一資料來源：週次 → 地區 → 背景 → 週一至週五怪物。
+- Status / Dungeon 共用同一個當週 World，不再各自保存背景對照表。
+- 週背景維持兩張圖無縫橫向捲動。
+- Visual Config 保留 1.0 目前的 desktop / tablet / mobile、weekly GROUND fallback、foot-anchor 模型。
+- Status 頁保留：日期時間、週次、地區、場景、Lv/戰力 HUD、EXP、金幣/抽獎幣/戰力、考前總能量、能力 Modal、學期冒險 Timeline。
+- 考前總能量搬入獨立 `exam-energy.js`，保留 1.0 的 75% 固定分母、家長核定才充能、voluntaryChallenge 不計入、未指定科目平均分配等核心規則。
+- 任務定義與任務紀錄分離；2.0 測試完成任務只寫 2.0 state。
+- 若部署在與 1.0 相同 origin，會只讀 `heroRPG_FAMILY_V8` 作為 2.0 測試起始資料；不覆寫 1.0 存檔。
 
-## 明確尚未搬入
-這份是可執行的 2.0 核心版，不是假裝已完成 1.0 全功能等價。以下仍待按模組正式搬入：
-- 1.0 完整戰鬥引擎、技能/職業/狀態/元素/召喚
-- 裝備、背包、商店、抽獎
-- Visual DB / 技能演出 Runtime
-- Firebase 家庭同步與多角色
-- 好友/PvP
-- 完整家長後台與核定流程
-- 1.0 舊存檔 migration
+## 已從根本避免的 1.0 寫法
+- 沒有 `const oldX = X; X = function(){ oldX(); ... }` wrapper chain。
+- 沒有版本號函式名稱。
+- 沒有第二份 `SEMESTER_WEEK_MAP`。
+- 沒有靠 CSS `!important` 接管角色世界座標。
+- `index.html` 只保留 App Shell，不放遊戲規則。
+- World、Visual、Exam、Task 都有單一責任模組。
 
-## 不可破壞的開發規則
-1. 一個責任只有一個正式模組。
-2. 禁止 Patch / Override / Wrapper 疊加。
-3. 禁止以版本號命名正式函式。
-4. 禁止以任務名稱、日期、角色名稱寫死 bug 特例。
-5. UI 不直接修改 domain state，只呼叫 service/store。
-6. Renderer 不擁有遊戲規則。
-7. 新 bug 必須回到責任來源修，不另建第二套狀態。
-8. Git 負責版本歷史，程式本身不保留 V10114 這類考古層。
+## 尚未搬入（下一批）
+- 正式 BattleEngine / BattleState / BattleUI / BattleRenderer
+- 職業正式資源、被動、技能、怪物 AI、召喚、狀態、FX Presentation
+- 商店交易、抽獎交易、裝備、Inventory lifecycle/tombstone
+- Firebase family/profile provider 與 realtime sync
+- Online/Social provider
+- 完整 GM 編輯器
 
-直接以 HTTP server 開啟即可；ES module 不建議用 file://。
-例如：
-python -m http.server 8000
+目前 Dungeon 刻意不假裝已完成戰鬥引擎；只驗證 1.0 的 World → Background → Encounter → Visual 關係已經正確拆開。
+
+## 測試
+這是 ES Module 專案，請用 HTTP(S) 開啟，不要 `file://`。放到 GitHub Pages 即可。
+正式素材暫時直接讀目前 `AlexLiao0131/studyRPG/main` 的公開圖片，因此不需要把 images 複製進這個測試包；正式 2.0 repo 建立後改成自己的相對路徑即可。
 
 
-## Three.js Renderer Prototype
-場景測試使用 Three.js r186 + OrthographicCamera。可拖曳 Hero/Enemy，並測試近戰、魔法拋物線與召喚。CSS 只管 Canvas 容器/UI；世界座標在 data/scene-config.js。Three.js 由 jsDelivr CDN 載入，因此測試需要網路。
+## 第二批：Battle Core + Daily Balance
+本批從目前 1.0 main 拆出正式戰鬥核心，不採 wrapper/override：
+- `js/balance/daily-dungeon-power.js`：A/B 每日怪公式；普通日 50%，Boss 日 70%，當日 snapshot 鎖定，新增任務只向上補。
+- `js/battle/battle-math.js`：1.0 的 effectiveStat、Hero/Enemy 戰鬥面板、命中、閃避、招架、格擋、暴擊、元素抗性與傷害公式。
+- `js/battle/battle-engine.js`：純 domain state；SPD 排序、目標、回合、狀態、勝負。沒有 DOM。
+- `js/battle/battle-ui.js`：Overlay / HUD / 動畫 / 玩家操作；不計算傷害。
+- `js/battle/skill-service.js`：先讀 1.0 正式 `skill-database.js`，網路失敗時至少保留 4 個初心者技能。
+- `js/battle/monster-database.js`：1.0 世界怪物 metadata；正式 Monster AI/特殊 Boss 機制下一批再從 1.0 拆出，不能回頭疊 patch。
+
+目前已能從副本按「挑戰！」進入正式 2.0 Battle Core。這一批先搬通用戰鬥責任；1.0 的各週 Monster AI、召喚、特殊 Boss、正式職業 special runtime 尚未宣稱完成。
