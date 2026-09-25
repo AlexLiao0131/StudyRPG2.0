@@ -1,7 +1,28 @@
-import { todayTasks, recordsForTaskToday, completeSimpleTask } from '../tasks/task-service.js';
+import { todayTasks, recordsForTaskToday, activeTaskStart, completeSimpleTask, startTimedTask, finishTimedTask, cancelTimedTask, completeQuantityTask, completeScoreTask } from '../tasks/task-service.js';
 import { autoTaskRewards } from '../progression/combat-power.js';
 const statName=k=>({str:'力量',agi:'敏捷',int:'智力',will:'意志',virtue:'美德'}[k]||k);
-export function renderTasks(root,rerender){
-  const tasks=todayTasks();root.innerHTML=`<h2>📚 今日任務</h2>${tasks.map(t=>{const recs=recordsForTaskToday(t.id),done=recs.length>=Math.max(1,Number(t.dailyLimit)||1),reward=t.rewardMode==='auto'?Object.entries(autoTaskRewards(t.category,t.difficulty)).map(([k,v])=>`${statName(k)} +${v}`).join('、'):'';return `<div class="card task-card"><span class="task-badge">${t.taskType==='timer'?'⏱ 計時':t.taskType==='score'?'📝 分數':t.taskType==='quantity'?'🔢 數量':'✅ 完成'}</span><div class="task-title">${t.name}</div><div class="small purple">${[t.subject,t.progressValue].filter(Boolean).join('｜')}</div><div style="margin:8px 0"><span class="pill">💰 ${Number(t.goldReward)||0}</span><span class="pill">⭐ ${Number(t.expReward)||0}</span></div>${reward?`<div class="small good">🌱 ${reward}</div>`:''}<div class="task-action"><button class="action-button ${done?'':'primary'}" data-complete="${t.id}" ${done?'disabled':''}>${done?'今天完成了':'完成！'}</button><button class="action-button" disabled>${recs.some(r=>r.approvalStatus==='pending')?'等待家長核定':'任務紀錄'}</button></div></div>`}).join('')||'<div class="card empty">今天沒有排定任務。</div>'}`;
-  root.querySelectorAll('[data-complete]').forEach(btn=>btn.addEventListener('click',()=>{completeSimpleTask(btn.dataset.complete);rerender()}));
+const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let timerHandle=0;
+function elapsed(ms){const s=Math.max(0,Math.floor(ms/1000)),m=Math.floor(s/60),r=s%60;return`${m}:${String(r).padStart(2,'0')}`}
+function rewardText(t){if(t.rewardMode==='auto')return Object.entries(autoTaskRewards(t.category,t.difficulty)).map(([k,v])=>`${statName(k)} +${v}`).join('、');const m=t.manualStatRewards||{};return Object.entries(m).filter(([,v])=>Number(v)>0).map(([k,v])=>`${statName(k)} +${v}`).join('、')}
+function actionHTML(t,done){
+  if(done)return`<button class="action-button" disabled>今天完成了</button>`;
+  if(t.taskType==='timer'){
+    const start=activeTaskStart(t.id);return start?`<button class="action-button primary" data-finish-timer="${esc(t.id)}">完成計時 <span data-timer="${esc(t.id)}">${elapsed(Date.now()-start)}</span></button><button class="action-button" data-cancel-timer="${esc(t.id)}">取消</button>`:`<button class="action-button primary" data-start-timer="${esc(t.id)}">開始計時</button>`;
+  }
+  if(t.taskType==='quantity')return`<input class="task-inline-input" data-quantity-input="${esc(t.id)}" type="number" min="0" placeholder="目標 ${Number(t.quantityTarget)||1} ${esc(t.quantityUnit||'次')}"><button class="action-button primary" data-complete-quantity="${esc(t.id)}">登記完成</button>`;
+  if(t.taskType==='score')return`<input class="task-inline-input" data-score-input="${esc(t.id)}" type="number" min="0" max="${Math.max(1,Number(t.scoreMax)||100)}" placeholder="0～${Math.max(1,Number(t.scoreMax)||100)}"><button class="action-button primary" data-complete-score="${esc(t.id)}">登記成績</button>`;
+  return`<button class="action-button primary" data-complete="${esc(t.id)}">完成！</button>`;
+}
+function notify(r){if(r?.message)alert(r.message)}
+function startTicker(root){clearInterval(timerHandle);timerHandle=setInterval(()=>{if(!root.isConnected){clearInterval(timerHandle);timerHandle=0;return}root.querySelectorAll('[data-timer]').forEach(el=>{const start=activeTaskStart(el.dataset.timer);if(start)el.textContent=elapsed(Date.now()-start)})},1000)}
+export function renderTasks(root){
+  const tasks=todayTasks();root.innerHTML=`<h2>📚 今日任務</h2>${tasks.map(t=>{const recs=recordsForTaskToday(t.id),done=recs.length>=Math.max(1,Number(t.dailyLimit)||1),reward=rewardText(t),pending=recs.filter(r=>r.approvalStatus==='pending').length;return `<div class="card task-card"><span class="task-badge">${t.taskType==='timer'?'⏱ 計時':t.taskType==='score'?'📝 分數':t.taskType==='quantity'?'🔢 數量':'✅ 完成'}</span><div class="task-title">${esc(t.name)}</div><div class="small purple">${[t.subject,t.progressValue].filter(Boolean).map(esc).join('｜')}</div><div style="margin:8px 0"><span class="pill">💰 ${Number(t.goldReward)||0}</span><span class="pill">⭐ ${Number(t.expReward)||0}</span>${pending?`<span class="pill warn">⏳ 待核定 ${pending}</span>`:''}</div>${reward?`<div class="small good">🌱 ${esc(reward)}</div>`:''}<div class="task-action dynamic">${actionHTML(t,done)}</div></div>`}).join('')||'<div class="card empty">今天沒有排定任務。</div>'}`;
+  root.querySelectorAll('[data-complete]').forEach(b=>b.onclick=()=>notify(completeSimpleTask(b.dataset.complete)));
+  root.querySelectorAll('[data-start-timer]').forEach(b=>b.onclick=()=>notify(startTimedTask(b.dataset.startTimer)));
+  root.querySelectorAll('[data-finish-timer]').forEach(b=>b.onclick=()=>notify(finishTimedTask(b.dataset.finishTimer)));
+  root.querySelectorAll('[data-cancel-timer]').forEach(b=>b.onclick=()=>notify(cancelTimedTask(b.dataset.cancelTimer)));
+  root.querySelectorAll('[data-complete-quantity]').forEach(b=>b.onclick=()=>{const input=[...root.querySelectorAll('[data-quantity-input]')].find(x=>x.dataset.quantityInput===b.dataset.completeQuantity);notify(completeQuantityTask(b.dataset.completeQuantity,input?.value))});
+  root.querySelectorAll('[data-complete-score]').forEach(b=>b.onclick=()=>{const input=[...root.querySelectorAll('[data-score-input]')].find(x=>x.dataset.scoreInput===b.dataset.completeScore);notify(completeScoreTask(b.dataset.completeScore,input?.value))});
+  startTicker(root);
 }
