@@ -1,48 +1,55 @@
-# StudyRPG 2.0 — 1.0 Architecture Refactor / Phase 1
+# StudyRPG 2.0 — Architecture Refactor
 
-這不是重新設計 StudyRPG。這一批以目前 GitHub `main/index.html` 的 1.0 產品架構為規格，先把最容易被補丁污染的 World / Visual / Status / Exam / Calendar / Tasks / Dungeon 拆出正式模組。
+StudyRPG 2.0 保留 1.0 的產品架構、玩法、世界、內容與數值意圖，但重新整理程式責任。正式 2.0 程式以本 repository `main` 為 Source of Truth；1.0 `AlexLiao0131/studyRPG` 只作為既有產品內容與素材來源，不再把 1.0 runtime 整包搬進 2.0。
 
-## 本批已完成
-- 1.0 的 8 個主入口與狀態頁資訊架構保留。
-- 21 週 `WEEKLY_WORLDS` 單一資料來源：週次 → 地區 → 背景 → 週一至週五怪物。
-- Status / Dungeon 共用同一個當週 World，不再各自保存背景對照表。
-- 週背景維持兩張圖無縫橫向捲動。
-- Visual Config 保留 1.0 目前的 desktop / tablet / mobile、weekly GROUND fallback、foot-anchor 模型。
-- Status 頁保留：日期時間、週次、地區、場景、Lv/戰力 HUD、EXP、金幣/抽獎幣/戰力、考前總能量、能力 Modal、學期冒險 Timeline。
-- 考前總能量搬入獨立 `exam-energy.js`，保留 1.0 的 75% 固定分母、家長核定才充能、voluntaryChallenge 不計入、未指定科目平均分配等核心規則。
-- 任務定義與任務紀錄分離；2.0 測試完成任務只寫 2.0 state。
-- 若部署在與 1.0 相同 origin，會只讀 `heroRPG_FAMILY_V8` 作為 2.0 測試起始資料；不覆寫 1.0 存檔。
+## 已完成的正式模組
 
-## 已從根本避免的 1.0 寫法
-- 沒有 `const oldX = X; X = function(){ oldX(); ... }` wrapper chain。
-- 沒有版本號函式名稱。
-- 沒有第二份 `SEMESTER_WEEK_MAP`。
-- 沒有靠 CSS `!important` 接管角色世界座標。
-- `index.html` 只保留 App Shell，不放遊戲規則。
-- World、Visual、Exam、Task 都有單一責任模組。
+- World / 21 週世界資料與背景。
+- Visual Config / GROUND / desktop、tablet、mobile 場景定位。
+- Status / Exam Energy / Calendar Timeline。
+- Tasks：排程、一般／計時／數量／分數任務、獎勵、待家長核定紀錄。
+- Daily Balance：每日 A/B 怪物基準與既有鎖定規則。
+- Battle Core：BattleState、BattleEngine、BattleMath、BattleUI、Skill Service、Monster AI、Monster Mechanics、多敵人／召喚等。
+- 家長後台 Core：學期與課表、考試科目、任務 CRUD、100/80/50/0% 核定、指定日期取消／恢復、行事曆 CRUD、家長 PIN。
 
-## 尚未搬入（下一批）
-- 正式 BattleEngine / BattleState / BattleUI / BattleRenderer
-- 職業正式資源、被動、技能、怪物 AI、召喚、狀態、FX Presentation
-- 商店交易、抽獎交易、裝備、Inventory lifecycle/tombstone
-- Firebase family/profile provider 與 realtime sync
-- Online/Social provider
-- 完整 GM 編輯器
+## 2.0 Migration 原則
 
-目前 Dungeon 刻意不假裝已完成戰鬥引擎；只驗證 1.0 的 World → Background → Encounter → Visual 關係已經正確拆開。
+`legacy-reader.js` 只讀取 1.0 正式存檔，並透過 allowlist 將仍屬正式產品資料搬入 2.0，例如角色、任務、任務紀錄、背包、裝備欄、商店、抽獎池、兌換申請、課表與行事曆。
 
-## 測試
-這是 ES Module 專案，請用 HTTP(S) 開啟，不要 `file://`。放到 GitHub Pages 即可。
-正式素材暫時直接讀目前 `AlexLiao0131/studyRPG/main` 的公開圖片，因此不需要把 images 複製進這個測試包；正式 2.0 repo 建立後改成自己的相對路徑即可。
+不再把 1.0 整份 profile/runtime state 直接 clone 進 2.0，因此舊 wrapper、runtime 暫存、版本補丁 state 與無關欄位不會繼續累積。舊欄位 `dailyBalanceV10114`、`examBossBaselineV10158`、`examCompletionTargetsV101716` 只在 migration 邊界讀取一次，正式 2.0 state 使用 `dailyBalance`、`examBossBaseline`、`examCompletionTargets`。
 
+1.0 原始 localStorage 不會被 2.0 覆寫。
 
-## 第二批：Battle Core + Daily Balance
-本批從目前 1.0 main 拆出正式戰鬥核心，不採 wrapper/override：
-- `js/balance/daily-dungeon-power.js`：A/B 每日怪公式；普通日 50%，Boss 日 70%，當日 snapshot 鎖定，新增任務只向上補。
-- `js/battle/battle-math.js`：1.0 的 effectiveStat、Hero/Enemy 戰鬥面板、命中、閃避、招架、格擋、暴擊、元素抗性與傷害公式。
-- `js/battle/battle-engine.js`：純 domain state；SPD 排序、目標、回合、狀態、勝負。沒有 DOM。
-- `js/battle/battle-ui.js`：Overlay / HUD / 動畫 / 玩家操作；不計算傷害。
-- `js/battle/skill-service.js`：先讀 1.0 正式 `skill-database.js`，網路失敗時至少保留 4 個初心者技能。
-- `js/battle/monster-database.js`：1.0 世界怪物 metadata；正式 Monster AI/特殊 Boss 機制下一批再從 1.0 拆出，不能回頭疊 patch。
+## 家長後台責任
 
-目前已能從副本按「挑戰！」進入正式 2.0 Battle Core。這一批先搬通用戰鬥責任；1.0 的各週 Monster AI、召喚、特殊 Boss、正式職業 special runtime 尚未宣稱完成。
+家長後台 UI 不直接實作遊戲規則：
+
+- `js/gm/semester-admin-service.js`：學期、考試科目、課表。
+- `js/gm/task-admin-service.js`：任務定義、封存／刪除、日期取消、核定入口。
+- `js/gm/calendar-admin-service.js`：家庭行事曆事件。
+- `js/gm/parent-access-service.js`：家長 PIN。
+- `js/tasks/task-service.js`：孩子實際完成任務與正式任務紀錄。
+- `js/progression/reward-service.js`：EXP、金幣／欠款、能力值發放與回收。
+
+這樣避免把 1.0 巨型 `renderGM()` 與遊戲規則重新塞回同一個 UI 檔。
+
+## 仍未完成
+
+以下資料會保留，但尚未在 2.0 建立完整正式操作流程；在正式 Service 完成前，不在 GM UI 內先造第二套規則：
+
+- Shop / Lottery transaction。
+- Inventory lifecycle / 裝備完整交易流程。
+- Firebase Family/Profile Provider 與 realtime sync。
+- Online / Social Provider。
+- GM 素材／動畫編輯器與完整 Battle Debug。
+- Demon King 等跨階段 Boss 的正式 Phase / Transformation System。
+
+## 測試原則
+
+這是 ES Module 專案，必須以 HTTP(S) 開啟，不要用 `file://`。
+
+每批修改至少執行：
+
+- `node --check` 靜態語法檢查。
+- 對受影響的 Service / Engine 做 smoke test。
+- 只有真的在瀏覽器／手機執行過，才可以宣稱 Browser Runtime 通過。
