@@ -1,6 +1,20 @@
 import { STATUS_DEFS } from './battle-config.js';
+import { phaseEntryRule, previousPhaseMonsterId } from './phase-database.js';
 
-export function monsterAI(db,monsterId){return db?.monsterAI?.[monsterId]||{}}
+export function monsterAI(db,monsterId){
+  const direct=db?.monsterAI?.[monsterId]||{};
+  const rule=phaseEntryRule(monsterId);
+  if(!rule?.inheritPreviousAI)return direct;
+  const previousId=previousPhaseMonsterId(monsterId),previous=previousId?(db?.monsterAI?.[previousId]||{}):{};
+  const hasOwnActions=(Array.isArray(direct.skills)&&direct.skills.length)||(Array.isArray(direct.rotation)&&direct.rotation.length)||(Array.isArray(direct.triggerSkills)&&direct.triggerSkills.length);
+  if(hasOwnActions)return direct;
+  return {
+    ...previous,...direct,
+    skills:Array.isArray(direct.skills)?direct.skills:previous.skills,
+    rotation:Array.isArray(direct.rotation)?direct.rotation:previous.rotation,
+    triggerSkills:Array.isArray(direct.triggerSkills)?direct.triggerSkills:previous.triggerSkills
+  };
+}
 export function monsterSkill(db,skillId){return db?.monsterSkills?.[skillId]||null}
 
 export function isMagicCaster(db,monsterId){

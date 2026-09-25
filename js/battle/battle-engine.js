@@ -4,13 +4,15 @@ import { monsterDef } from './monster-database.js';
 import { ensureContentDatabase } from '../data/content-provider.js';
 import { monsterAI, monsterSkill, isMagicCaster, chooseEnemySkill, statusFromMonsterSkill, initiativeBonus } from './monster-ai.js';
 import { MULTI_ENEMY_RULES, MIRROR_RULES, applyBattleStartMechanics, canUseSummonSkill, executeSummonSkill, afterEnemyDamaged, afterEnemyDefeated, beforeEnemyStatusTick, beforeEnemyTurn, executeTriggerSkill, enemyDamageMultiplier, afterEnemyDamageResolved, afterRound } from './monster-mechanics.js';
+import { applyPhaseEntryModifiers } from './phase-service.js';
+import { phaseCombatProfile } from './phase-database.js';
 
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function actionSummary(r,target){if(r.type==='miss')return'💨 攻擊落空！';if(r.type==='dodge')return`💨 ${target}閃避成功！`;if(r.type==='parry')return`⚔️ ${target}招架成功！`;if(r.type==='block')return`🛡️ ${target}格擋，只受到 ${r.damage} 點傷害。`;return`${r.crit?'💥 致命一擊！':''}${r.weak?' WEAK！':''}${r.resisted?' RESIST！':''}造成 ${r.damage} 點傷害。`}
 function modifiersToMap(modifiers=[]){const out={};for(const m of modifiers){if(m?.operation==='add')out[m.target]=(out[m.target]||0)+Number(m.value||0)}return out}
 
 export class BattleEngine{
- constructor({hero,monsterId,enemyPower,eventType='daily'}={}){this.heroSource=hero;this.monsterId=monsterId;this.enemyPower=Number(enemyPower)||1;this.eventType=eventType;this.listeners=new Set();this.state=null;this.content=null}
+ constructor({hero,monsterId,enemyPower,eventType='daily',campaignProgress={},phaseScopeKey=''}={}){this.heroSource=hero;this.monsterId=monsterId;this.enemyPower=Number(enemyPower)||1;this.eventType=eventType;this.campaignProgress=campaignProgress||{};this.phaseScopeKey=String(phaseScopeKey||'');this.listeners=new Set();this.state=null;this.content=null}
  async prepare(){this.content=await ensureContentDatabase()||{};return this}
  subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn)}
  emit(event){for(const fn of this.listeners)fn(this.snapshot(),event)}
@@ -34,12 +36,18 @@ export class BattleEngine{
   return{id:'mirror_attack',name:'鏡像攻擊',kind:'physical',target:'single',multiplier:1,mirrorDuel:true,defensePierce:MIRROR_RULES.defensePierce};
  }
  makeEnemy(monsterId,opts={}){
-  const def=monsterDef(monsterId),ai=this.aiFor(monsterId),mirror=!!(ai.copyHero||def.mirrorHero),base=mirror?makeHeroBattleStats(this.heroSource):deriveEnemyStats(this.enemyPower,def,this.eventType),defaultScale=mirror?Number(ai.statScale??1):1,scale=Number(opts.statScale??defaultScale),bossLike=!!(opts.isBoss??def.boss)||['midterm','final'].includes(this.eventType),caster=isMagicCaster(this.content,monsterId);
-  let attackRoleScale=1,magicRoleScale=1;if(caster){magicRoleScale=bossLike?1.55:1.30;attackRoleScale=.90}if(monsterId==='demon_king_phase1'||monsterId==='demon_king_phase2')magicRoleScale=Math.max(magicRoleScale,1.60);if(monsterId==='necromancer')magicRoleScale=Math.max(magicRoleScale,1.35);
+  const def=monsterDef(monsterId),ai=this.aiFor(monsterId),mirror=!!(ai.copyHero||def.mirrorHero),base=mirror?makeHeroBattleStats(this.heroSource):deriveEnemyStats(this.enemyPower,def,this.eventType),defaultScale=mirror?Number(ai.statScale??1):1,scale=Number(opts.statScale??defaultScale),bossLike=!!(opts.isBoss??def.boss)||['midterm','final'].includes(this.eventType),caster=isMagicCaster(this.content,monsterId),phaseProfile=phaseCombatProfile(monsterId);
+  let attackRoleScale=1,magicRoleScale=1;if(caster){magicRoleScale=bossLike?1.55:1.30;attackRoleScale=.90}if(Number.isFinite(Number(phaseProfile.magicRoleScale)))magicRoleScale=Math.max(magicRoleScale,Number(phaseProfile.magicRoleScale));if(monsterId==='necromancer')magicRoleScale=Math.max(magicRoleScale,1.35);
   const hpScale=Number(opts.hpScale??(mirror?MIRROR_RULES.hpScale:scale))*(def.finalBoss?1.35:1),unit={...base,uid:opts.uid||`${monsterId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,monsterId,name:opts.name||def.name,isBoss:!!(opts.isBoss??def.boss),isSummon:!!opts.isSummon,summonedBy:opts.summonedBy||null,maxHp:Math.max(1,Math.round(base.maxHp*hpScale)),hp:0,alive:true,attack:base.attack*scale*attackRoleScale,magicAttack:base.magicAttack*scale*magicRoleScale,defense:base.defense*scale,magicDefense:base.magicDefense*scale,speed:base.speed*scale,statuses:[],skillUses:{},cooldowns:{},chargedSkill:null,rotationIndex:0,turnsTaken:0,maxMp:Number(ai.maxMp||ai.mp||base.maxEnergy||50),mp:Number(ai.mp??ai.maxMp??base.maxEnergy??50)};
   unit.hp=unit.maxHp;Object.assign(unit,opts.flags||{});if(opts.forceBasicOnly)unit.forceBasicOnly=true;if(opts.soulLinked)unit.soulLinked=true;return unit;
  }
- start(){const hero=makeHeroBattleStats(this.heroSource),enemy=this.makeEnemy(this.monsterId,{isBoss:['midterm','final'].includes(this.eventType)||monsterDef(this.monsterId).boss});this.state={hero,enemies:[enemy],selectedEnemyUid:enemy.uid,round:0,busy:false,ended:false,result:'',heroHp:hero.maxHp,heroEnergy:Math.round(hero.maxEnergy*.50),logs:['⚔️ 戰鬥開始！先鎖定目標再選擇行動。'],enemyPower:this.enemyPower,eventType:this.eventType,monsterId:this.monsterId};applyBattleStartMechanics(this,enemy);this.emit({type:'start'});return this.snapshot()}
+ start(){
+  const hero=makeHeroBattleStats(this.heroSource),enemy=this.makeEnemy(this.monsterId,{isBoss:['midterm','final'].includes(this.eventType)||monsterDef(this.monsterId).boss});
+  this.state={hero,enemies:[enemy],selectedEnemyUid:enemy.uid,round:0,busy:false,ended:false,result:'',heroHp:hero.maxHp,heroEnergy:Math.round(hero.maxEnergy*.50),logs:['⚔️ 戰鬥開始！先鎖定目標再選擇行動。'],enemyPower:this.enemyPower,eventType:this.eventType,monsterId:this.monsterId};
+  const phaseContext=applyPhaseEntryModifiers(enemy,{monsterId:this.monsterId,campaignProgress:this.campaignProgress,scopeKey:this.phaseScopeKey});
+  if(phaseContext){this.state.phaseContext=phaseContext;if(phaseContext.message)this.state.logs.push(phaseContext.message)}
+  applyBattleStartMechanics(this,enemy);this.emit({type:'start'});return this.snapshot();
+ }
  target(){const alive=this.livingEnemies();let t=alive.find(x=>x.uid===this.state?.selectedEnemyUid)||alive[0]||null;if(t)this.state.selectedEnemyUid=t.uid;return t}
  log(message){if(!this.state)return;this.state.logs.push(message);if(this.state.logs.length>20)this.state.logs.shift();this.emit({type:'log',message})}
  selectTarget(uid){if(!this.state||this.state.busy||this.state.ended)return false;const t=this.livingEnemies().find(x=>x.uid===uid);if(!t)return false;this.state.selectedEnemyUid=uid;this.log(`🎯 鎖定目標：${t.name}`);return true}
