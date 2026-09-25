@@ -8,7 +8,9 @@ function defaultGame(){
       name:'勇者',gender:'male',heroClass:'見習勇者',jobAwakened:false,
       level:1,exp:0,maxExp:100,gold:0,lotteryCoins:0,virtue:0,
       stats:{str:10,agi:10,int:10,will:10},jobScores:{},
-      knownSkills:[],skills:[],equippedSkills:[],jobPassive:'',pendingGoldDebt:0,lastStatGains:{},equipment:{weapon:null,head:null,body:null,accessory:null}
+      knownSkills:[],skills:[],equippedSkills:[],jobPassive:'',
+      skillUsage:{},skillUsageByDate:{},jobCandidateHistory:[],
+      pendingGoldDebt:0,lastStatGains:{},equipment:{weapon:null,head:null,body:null,accessory:null}
     },
     semester:{startDate:'2026-08-31',endDate:'2027-01-20',schoolWeekdays:[1,2,3,4,5],worldState:'normal'},
     tasks:[
