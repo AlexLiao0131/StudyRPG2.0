@@ -1,4 +1,4 @@
-import { getFamily, getGame } from '../core/store.js';
+import { getFamily, getGame, save } from '../core/store.js';
 import { localDateString, parseLocalDate } from '../core/date.js';
 import { taskPowerGain } from '../progression/combat-power.js';
 const LEARNING_CATEGORIES=new Set(['study','exam_paper','school_reading']);
@@ -20,8 +20,8 @@ function subjectPowerRates(ids){
   return Object.fromEntries(ids.map(id=>[id,pools[id].length?pools[id].reduce((a,b)=>a+b,0)/pools[id].length:shared]));
 }
 function targetSnapshot(evt){
-  const g=getGame(),ids=eventSubjectIds(evt),key=String(evt.id||`${evt.type}_${evt.date}`),semesterStart=g.semester?.startDate||'2026-08-31';g.examCompletionTargetsV101716=g.examCompletionTargetsV101716||{};let snap=g.examCompletionTargetsV101716[key];const same=snap&&snap.semesterStart===semesterStart&&snap.examDate===evt.date&&Array.isArray(snap.subjectIds)&&ids.every(id=>snap.subjectIds.includes(id))&&snap.subjectIds.length===ids.length;
-  if(!same){const minutes=studyMinutesUntil(evt.date,ids,semesterStart),rates=subjectPowerRates(ids),required=Object.fromEntries(ids.map(id=>[id,Math.max(0,(minutes[id]/60)*(rates[id]||0)*TARGET_COMPLETION)]));snap={semesterStart,examDate:evt.date,subjectIds:[...ids],minutes,rates,required,createdAt:new Date().toISOString()};g.examCompletionTargetsV101716[key]=snap}
+  const g=getGame(),ids=eventSubjectIds(evt),key=String(evt.id||`${evt.type}_${evt.date}`),semesterStart=g.semester?.startDate||'2026-08-31';g.examCompletionTargets=g.examCompletionTargets||{};let snap=g.examCompletionTargets[key];const same=snap&&snap.semesterStart===semesterStart&&snap.examDate===evt.date&&Array.isArray(snap.subjectIds)&&ids.every(id=>snap.subjectIds.includes(id))&&snap.subjectIds.length===ids.length;
+  if(!same){const minutes=studyMinutesUntil(evt.date,ids,semesterStart),rates=subjectPowerRates(ids),required=Object.fromEntries(ids.map(id=>[id,Math.max(0,(minutes[id]/60)*(rates[id]||0)*TARGET_COMPLETION)]));snap={semesterStart,examDate:evt.date,subjectIds:[...ids],minutes,rates,required,createdAt:new Date().toISOString()};g.examCompletionTargets[key]=snap;save()}
   return snap;
 }
 function approvalRatio(r){if(r?.approvalStatus==='pending'||r?.approvalStatus==='rejected')return 0;if(Number.isFinite(Number(r?.approvalRatio)))return Math.max(0,Math.min(1,Number(r.approvalRatio)));return r?.approvalStatus==='approved'?1:0}
