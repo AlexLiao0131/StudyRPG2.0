@@ -1,0 +1,7 @@
+import { todayTasks, recordsForTaskToday, completeSimpleTask } from '../tasks/task-service.js';
+import { autoTaskRewards } from '../progression/combat-power.js';
+const statName=k=>({str:'力量',agi:'敏捷',int:'智力',will:'意志',virtue:'美德'}[k]||k);
+export function renderTasks(root,rerender){
+  const tasks=todayTasks();root.innerHTML=`<h2>📚 今日任務</h2>${tasks.map(t=>{const recs=recordsForTaskToday(t.id),done=recs.length>=Math.max(1,Number(t.dailyLimit)||1),reward=t.rewardMode==='auto'?Object.entries(autoTaskRewards(t.category,t.difficulty)).map(([k,v])=>`${statName(k)} +${v}`).join('、'):'';return `<div class="card task-card"><span class="task-badge">${t.taskType==='timer'?'⏱ 計時':t.taskType==='score'?'📝 分數':t.taskType==='quantity'?'🔢 數量':'✅ 完成'}</span><div class="task-title">${t.name}</div><div class="small purple">${[t.subject,t.progressValue].filter(Boolean).join('｜')}</div><div style="margin:8px 0"><span class="pill">💰 ${Number(t.goldReward)||0}</span><span class="pill">⭐ ${Number(t.expReward)||0}</span></div>${reward?`<div class="small good">🌱 ${reward}</div>`:''}<div class="task-action"><button class="action-button ${done?'':'primary'}" data-complete="${t.id}" ${done?'disabled':''}>${done?'今天完成了':'完成！'}</button><button class="action-button" disabled>${recs.some(r=>r.approvalStatus==='pending')?'等待家長核定':'任務紀錄'}</button></div></div>`}).join('')||'<div class="card empty">今天沒有排定任務。</div>'}`;
+  root.querySelectorAll('[data-complete]').forEach(btn=>btn.addEventListener('click',()=>{completeSimpleTask(btn.dataset.complete);rerender()}));
+}
