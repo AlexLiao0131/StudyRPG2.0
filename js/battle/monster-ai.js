@@ -1,4 +1,5 @@
 import { STATUS_DEFS } from './battle-config.js';
+
 export function monsterAI(db,monsterId){return db?.monsterAI?.[monsterId]||{}}
 export function monsterSkill(db,skillId){return db?.monsterSkills?.[skillId]||null}
 
@@ -8,6 +9,15 @@ export function isMagicCaster(db,monsterId){
   for(const id of ai.rotation||[]){const s=monsterSkill(db,id);if(s)defs.push(s)}
   const magic=defs.filter(s=>s.kind==='magic').length,physical=defs.filter(s=>s.kind==='physical').length;
   return magic>0&&magic>=physical;
+}
+
+function targetHasStatus(engine,statusId){
+  return !!engine?.state?.hero?.statuses?.some(s=>s.type===statusId&&Number(s.turns)>0);
+}
+
+export function initiativeBonus(engine,unit){
+  const ai=monsterAI(engine?.content,unit?.monsterId);
+  return ai.alwaysActsFirstOnBattleStart&&Number(engine?.state?.round)===1?10000:0;
 }
 
 export function skillUsable(engine,unit,entry,skill){
@@ -20,18 +30,40 @@ export function skillUsable(engine,unit,entry,skill){
   if(entry?.condition==='low_hp'&&unit.hp/unit.maxHp>Number(entry.threshold||skill.conditionHpBelow||.4))return false;
   if(skill.cannotUseConsecutively&&unit.lastSkillId===skill.id)return false;
   if(skill.kind==='summon'&&!engine.canUseSummonSkill(unit,skill))return false;
+
+  const ai=monsterAI(engine?.content,unit.monsterId);
+  if(ai.doNotReapplyActiveCurse&&skill.status?.id==='curse'&&targetHasStatus(engine,'curse'))return false;
   return true;
 }
 
 export function chooseEnemySkill(engine,unit){
   const db=engine.content||{},ai=monsterAI(db,unit.monsterId);
   if(unit.forceBasicOnly)return {id:'summon_basic',name:'攻擊',kind:'physical',target:'single',multiplier:.8};
-  if(unit.chargedSkill){const charged=monsterSkill(db,unit.chargedSkill);if(charged)return charged}
-  if(Array.isArray(ai.rotation)&&ai.rotation.length){
-    const id=ai.rotation[unit.rotationIndex%ai.rotation.length];unit.rotationIndex++;
-    return monsterSkill(db,id);
+
+  if(unit.chargedSkill){
+    const charged=monsterSkill(db,unit.chargedSkill);
+    if(charged)return charged;
   }
-  if(unit.monsterId==='hero_mirror')return{id:'mirror_attack',name:'鏡像攻擊',kind:unit.magicAttack>unit.attack?'magic':'physical',element:'arcane',target:'single',multiplier:1,defensePierce:.50,mirrorDuel:true};
+
+  for(const id of ai.triggerSkills||[]){
+    const skill=monsterSkill(db,id);
+    if(skillUsable(engine,unit,{id},skill))return skill;
+  }
+
+  if(Array.isArray(ai.rotation)&&ai.rotation.length){
+    for(let i=0;i<ai.rotation.length;i++){
+      const id=ai.rotation[unit.rotationIndex%ai.rotation.length];
+      unit.rotationIndex++;
+      const skill=monsterSkill(db,id);
+      if(skillUsable(engine,unit,{id},skill))return skill;
+    }
+  }
+
+  if(ai.copyHero&&typeof engine.mirrorSkillFor==='function'){
+    const mirror=engine.mirrorSkillFor(unit);
+    if(mirror)return mirror;
+  }
+
   const pool=[];
   for(const entry of ai.skills||[]){
     const skill=monsterSkill(db,entry.id);if(!skillUsable(engine,unit,entry,skill))continue;
