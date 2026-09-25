@@ -53,7 +53,7 @@ function migrateGame(raw={},fallback={}){
       worldState:String(semester.worldState||fallback.semester?.worldState||'normal')
     },
     tasks:array(raw.tasks),taskRecords:array(raw.taskRecords),activeTasks:{},learningProgress:array(raw.learningProgress),
-    inventory,inventoryTombstones:tombstones,shopItems:array(raw.shopItems),lotteryPool:array(raw.lotteryPool),lotteryCoinLedger:object(raw.lotteryCoinLedger),couponRequests:array(raw.couponRequests),battleRecords:array(raw.battleRecords),gmAudit:array(raw.gmAudit),semesterArchives:array(raw.semesterArchives),campaignProgress:migrateCampaignProgress(raw),
+    inventory,inventoryTombstones:tombstones,shopItems:array(raw.shopItems),lotteryPool:array(raw.lotteryPool),lotteryCoinLedger:object(raw.lotteryCoinLedger),assetAudit:object(raw.assetAudit),couponRequests:array(raw.couponRequests),battleRecords:array(raw.battleRecords),gmAudit:array(raw.gmAudit),semesterArchives:array(raw.semesterArchives),campaignProgress:migrateCampaignProgress(raw),
     social:{friends:array(raw.social?.friends),inbox:array(raw.social?.inbox)},
     settings:{parentPinHash:String(settings.parentPinHash||''),cloud:object(settings.cloud),familyAccess:object(settings.familyAccess||{enabled:true}),holidayTower:object(settings.holidayTower||{dailyLimit:3})},
     dailyBalance:clone(raw.dailyBalance||raw.dailyBalanceV10114||null),

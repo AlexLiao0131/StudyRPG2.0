@@ -36,7 +36,7 @@ function normalizeGame(raw={},fallback={}){
       worldState:String(sem.worldState||fallback.semester?.worldState||'normal')
     },
     tasks:arr(raw.tasks),taskRecords:arr(raw.taskRecords),activeTasks:obj(raw.activeTasks),learningProgress:arr(raw.learningProgress),
-    inventory,inventoryTombstones:tombstones,shopItems:arr(raw.shopItems),lotteryPool:arr(raw.lotteryPool),lotteryCoinLedger:obj(raw.lotteryCoinLedger),couponRequests:arr(raw.couponRequests),battleRecords:arr(raw.battleRecords),gmAudit:arr(raw.gmAudit),semesterArchives:arr(raw.semesterArchives),campaignProgress:obj(raw.campaignProgress),
+    inventory,inventoryTombstones:tombstones,shopItems:arr(raw.shopItems),lotteryPool:arr(raw.lotteryPool),lotteryCoinLedger:obj(raw.lotteryCoinLedger),assetAudit:obj(raw.assetAudit),couponRequests:arr(raw.couponRequests),battleRecords:arr(raw.battleRecords),gmAudit:arr(raw.gmAudit),semesterArchives:arr(raw.semesterArchives),campaignProgress:obj(raw.campaignProgress),
     social:{friends:arr(raw.social?.friends),inbox:arr(raw.social?.inbox)},
     settings:{parentPinHash:String(settings.parentPinHash||''),cloud:obj(settings.cloud),familyAccess:obj(settings.familyAccess||{enabled:true}),holidayTower:obj(settings.holidayTower||{dailyLimit:3})},
     dailyBalance:clone(raw.dailyBalance||raw.dailyBalanceV10114||null),
