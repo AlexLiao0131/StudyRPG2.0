@@ -19,7 +19,8 @@ function normalize(s){
     g.hero.stats=g.hero.stats||{str:10,agi:10,int:10,will:10};
     g.semester=g.semester||clone(fallback.family.profiles[0].data.semester);
     g.tasks=Array.isArray(g.tasks)?g.tasks:[];g.taskRecords=Array.isArray(g.taskRecords)?g.taskRecords:[];
-    g.inventory=Array.isArray(g.inventory)?g.inventory:[];g.shopItems=Array.isArray(g.shopItems)?g.shopItems:[];
+    g.inventory=Array.isArray(g.inventory)?g.inventory:[];g.shopItems=Array.isArray(g.shopItems)?g.shopItems:[];g.battleRecords=Array.isArray(g.battleRecords)?g.battleRecords:[];
+    if(!g.dailyBalance&&g.dailyBalanceV10114?.date)g.dailyBalance={...g.dailyBalanceV10114,formula:'legacy-import'};
     g.examCompletionTargetsV101716=g.examCompletionTargetsV101716||{};
   }
   return s;
