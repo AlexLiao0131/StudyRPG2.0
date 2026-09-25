@@ -4,19 +4,20 @@ import { localDateString } from '../core/date.js';
 import { combatPower } from '../progression/combat-power.js';
 import { calibratedDailyMonsterPower, ensureDailyBalanceSnapshot } from '../balance/daily-dungeon-power.js';
 
+function ignoredDailyRecordIds(dateStr){
+  const reset=getGame().campaignProgress?.dailyChallengeResets?.[dateStr];
+  return new Set(Array.isArray(reset?.ignoredRecordIds)?reset.ignoredRecordIds.map(String):[]);
+}
+
 export function dailyChallengeRecord(dateStr=localDateString()){
-  const records=getGame().battleRecords||[];
+  const records=getGame().battleRecords||[],ignored=ignoredDailyRecordIds(dateStr);
   for(let i=records.length-1;i>=0;i--){
     const r=records[i];
-    if(r?.date===dateStr&&r?.eventType==='daily'&&(r.result==='win'||r.result==='lose'))return r;
+    if(r?.date===dateStr&&r?.eventType==='daily'&&(r.result==='win'||r.result==='lose')&&!ignored.has(String(r.id||'')))return r;
   }
   return null;
 }
-
-export function dailyChallengeResolved(dateStr=localDateString()){
-  return !!dailyChallengeRecord(dateStr);
-}
-
+export function dailyChallengeResolved(dateStr=localDateString()){return !!dailyChallengeRecord(dateStr)}
 export function dungeonSnapshot(dateStr=localDateString()){
   const encounter=encounterForDate(dateStr),world=worldForDate(dateStr),challenge=dailyChallengeRecord(dateStr);
   if(!encounter)return{encounter:null,world,heroPower:combatPower(),enemyPower:0,celebration:!!world?.noBattle,challenged:!!challenge,challengeResult:challenge?.result||''};
