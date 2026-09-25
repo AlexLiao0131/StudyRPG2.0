@@ -1,1 +1,2 @@
-
+export const BATTLE_SCENE={camera:{height:10},background:{top:0x172d46,bottom:0x27452c},ground:{y:-3.25,height:1.35},hero:{x:-4.1,y:-2.15,z:10,scale:1,anchors:{head:[0,1.7],cast:[.75,.8],center:[0,.7]}},enemy:{x:4.1,y:-2.15,z:10,scale:1.12,anchors:{head:[0,1.65],cast:[-.75,.8],center:[0,.7]}},summon:{x:1.8,y:-2.2,z:9,scale:.7}};
+export const VISUALS={melee:{duration:420},cast:{duration:720},summon:{duration:620}};
