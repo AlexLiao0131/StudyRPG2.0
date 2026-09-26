@@ -6,7 +6,7 @@ function defaultGame(){
   return {
     hero:{
       name:'勇者',gender:'male',heroClass:'見習勇者',jobAwakened:false,
-      level:1,exp:0,maxExp:100,gold:0,lotteryCoins:0,virtue:0,
+      level:1,exp:0,maxExp:100,gold:0,lotteryCoins:0,virtue:0,enhancementShards:0,
       stats:{str:10,agi:10,int:10,will:10},jobScores:{},
       knownSkills:[],skills:[],equippedSkills:[],jobPassive:'',
       skillUsage:{},skillUsageByDate:{},jobCandidateHistory:[],
@@ -18,7 +18,9 @@ function defaultGame(){
       {id:'task_math',name:'數學複習',category:'study',difficulty:'normal',taskType:'timer',rewardMode:'auto',courseId:'math',subject:'數學',recurring:true,weekdays:[1,2,3,4,5],active:true,archived:false,activeFrom:'2026-08-31',activeUntil:'',timerMode:'deadline',standardMinutes:40,fastMinutes:25,goldReward:2,expReward:10,dailyLimit:1,cancelledDates:[]}
     ],
     taskRecords:[],activeTasks:{},learningProgress:[],
-    inventory:[],inventoryTombstones:{},shopItems:[],lotteryPool:[],lotteryCoinLedger:{},assetAudit:{},couponRequests:[],battleRecords:[],gmAudit:[],semesterArchives:[],campaignProgress:{phaseHistory:{}},
+    inventory:[],inventoryTombstones:{},shopItems:[],lotteryPool:[],lotteryCoinLedger:{},assetAudit:{},couponRequests:[],battleRecords:[],gmAudit:[],semesterArchives:[],
+    campaignProgress:{phaseHistory:{},cycle:1,mode:'semester',semesterStartDate:'2026-08-31'},
+    storyFlags:{},holidayTower:{date:'',runsUsed:0,bestFloor:0},balanceSettings:{gearCarryRate:.55},semesterGearBaseline:null,uniqueEquipmentDefinitions:{},
     social:{friends:[],inbox:[]},
     settings:{parentPinHash:'',cloud:{},familyAccess:{enabled:true},holidayTower:{dailyLimit:3}},
     dailyBalance:null,
