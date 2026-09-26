@@ -32,6 +32,6 @@ export function renderDungeon(root,rerender=()=>{}){
   if(!challenged)start.onclick=()=>openBattle(new BattleEngine({
     hero:g.hero,monsterId:e.monsterId,enemyPower:snap.enemyPower,eventType:snap.eventType||'daily',
     campaignProgress:g.campaignProgress,phaseScopeKey:g.semester?.startDate||'',
-    equipmentStats:equipmentTotals(ensureEconomyCatalog()),examContext:snap.exam?.context||null
+    equipmentStats:equipmentTotals(ensureEconomyCatalog()),examContext:snap.exam?.context||null,week:snap.world?.week||0
   }),rerender);
 }
