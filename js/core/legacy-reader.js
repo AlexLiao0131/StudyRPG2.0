@@ -55,15 +55,31 @@ function migrateGame(raw={},fallback={}){
 
 function migrateFamily(rawFamily){
   const base=createDefaultState(),baseGame=base.family.profiles[0].data;
-  const profiles=(rawFamily.profiles||[]).map((p,i)=>({id:String(p.id||`hero_${i+1}`),label:String(p.label||p.data?.hero?.name||`勇者${i+1}`),data:migrateGame(p.data||{},baseGame)}));
-  const safeProfiles=profiles.length?profiles:base.family.profiles,wanted=String(sessionStorage.getItem('activeHeroProfile')||rawFamily.activeProfileId||safeProfiles[0].id);
-  return{activeProfileId:safeProfiles.some(p=>p.id===wanted)?wanted:safeProfiles[0].id,profiles:safeProfiles,examSubjects:Array.isArray(rawFamily.examSubjects)&&rawFamily.examSubjects.length?array(rawFamily.examSubjects):clone(base.family.examSubjects),schoolTimetable:Array.isArray(rawFamily.schoolTimetable)?array(rawFamily.schoolTimetable):clone(base.family.schoolTimetable),adventureCalendar:Array.isArray(rawFamily.adventureCalendar)?array(rawFamily.adventureCalendar):clone(base.family.adventureCalendar),access:object(rawFamily.access)};
+  const profiles=(rawFamily?.profiles||[]).map((p,i)=>({id:String(p.id||`hero_${i+1}`),label:String(p.label||p.data?.hero?.name||`勇者${i+1}`),data:migrateGame(p.data||{},baseGame)}));
+  const safeProfiles=profiles.length?profiles:base.family.profiles,wanted=String(sessionStorage.getItem('activeHeroProfile')||rawFamily?.activeProfileId||safeProfiles[0].id);
+  return{
+    activeProfileId:safeProfiles.some(p=>p.id===wanted)?wanted:safeProfiles[0].id,
+    profiles:safeProfiles,
+    examSubjects:Array.isArray(rawFamily?.examSubjects)&&rawFamily.examSubjects.length?array(rawFamily.examSubjects):clone(base.family.examSubjects),
+    schoolTimetable:Array.isArray(rawFamily?.schoolTimetable)?array(rawFamily.schoolTimetable):clone(base.family.schoolTimetable),
+    adventureCalendar:Array.isArray(rawFamily?.adventureCalendar)?array(rawFamily.adventureCalendar):clone(base.family.adventureCalendar),
+    access:object(rawFamily?.access),
+    legacySeasonId:String(rawFamily?.seasonId||APP_CONFIG.legacySeasonId)
+  };
 }
+
+export function migrateLegacyFamilySnapshot(rawFamily){return migrateFamily(rawFamily||{})}
+export function migrateLegacyGameSnapshot(rawGame){const base=createDefaultState().family.profiles[0].data;return migrateGame(rawGame||{},base)}
 
 export function readLegacyState(){
   const family=safeParse(localStorage.getItem(APP_CONFIG.legacyFamilyKey));
   if(family?.profiles?.length)return{schemaVersion:2,source:'1.0-localStorage-readonly',importedAt:new Date().toISOString(),family:migrateFamily(family)};
   const single=safeParse(localStorage.getItem(APP_CONFIG.legacySingleKey));
-  if(single?.hero){const state=createDefaultState();state.source='1.0-single-save-readonly';state.importedAt=new Date().toISOString();state.family.profiles[0].data=migrateGame(single,state.family.profiles[0].data);state.family.profiles[0].label=state.family.profiles[0].data.hero.name||'勇者';return state}
+  if(single?.hero){
+    const state=createDefaultState();state.source='1.0-single-save-readonly';state.importedAt=new Date().toISOString();
+    state.family.profiles[0].data=migrateGame(single,state.family.profiles[0].data);
+    state.family.profiles[0].label=state.family.profiles[0].data.hero.name||'勇者';
+    return state;
+  }
   return null;
 }
