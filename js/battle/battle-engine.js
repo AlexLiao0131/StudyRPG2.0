@@ -6,6 +6,7 @@ import { monsterAI, monsterSkill, isMagicCaster, chooseEnemySkill, statusFromMon
 import { MULTI_ENEMY_RULES, MIRROR_RULES, applyBattleStartMechanics, canUseSummonSkill, executeSummonSkill, afterEnemyDamaged, afterEnemyDefeated, beforeEnemyStatusTick, beforeEnemyTurn, executeTriggerSkill, enemyDamageMultiplier, afterEnemyDamageResolved, afterRound } from './monster-mechanics.js';
 import { applyPhaseEntryModifiers } from './phase-service.js';
 import { phaseCombatProfile } from './phase-database.js';
+import { applyExamBreakToEnemy, initializeExamBattleState, absorbExamShield } from '../exam/exam-boss-service.js';
 import {
   createFormalRuntime,initFormalResources,heroInitiativeBonus,formalInitiativeEntries,formalAllyTurn,
   formalSkillPreflight,executeFormalSkill,formalTurnStart,afterFormalStatusTick,afterHeroBasicAttack,afterEnemyDamageToHero,
@@ -17,7 +18,7 @@ function actionSummary(r,target){if(r.type==='miss')return'💨 攻擊落空！'
 function modifiersToMap(modifiers=[]){const out={};for(const m of modifiers){if(m?.operation==='add')out[m.target]=(out[m.target]||0)+Number(m.value||0)}return out}
 
 export class BattleEngine{
- constructor({hero,monsterId,enemyPower,eventType='daily',campaignProgress={},phaseScopeKey='',equipmentStats={}}={}){this.heroSource=hero;this.monsterId=monsterId;this.enemyPower=Number(enemyPower)||1;this.eventType=eventType;this.campaignProgress=campaignProgress||{};this.phaseScopeKey=String(phaseScopeKey||'');this.equipmentStats=equipmentStats||{};this.listeners=new Set();this.state=null;this.content=null}
+ constructor({hero,monsterId,enemyPower,eventType='daily',campaignProgress={},phaseScopeKey='',equipmentStats={},examContext=null}={}){this.heroSource=hero;this.monsterId=monsterId;this.enemyPower=Number(enemyPower)||1;this.eventType=eventType;this.campaignProgress=campaignProgress||{};this.phaseScopeKey=String(phaseScopeKey||'');this.equipmentStats=equipmentStats||{};this.examContext=examContext||null;this.listeners=new Set();this.state=null;this.content=null}
  async prepare(){this.content=await ensureContentDatabase()||{};return this}
  subscribe(fn){this.listeners.add(fn);return()=>this.listeners.delete(fn)}
  emit(event){for(const fn of this.listeners)fn(this.snapshot(),event)}
@@ -31,7 +32,7 @@ export class BattleEngine{
   const def=monsterDef(monsterId),ai=this.aiFor(monsterId),mirror=!!(ai.copyHero||def.mirrorHero),base=mirror?makeHeroBattleStats(this.heroSource):deriveEnemyStats(this.enemyPower,def,this.eventType),defaultScale=mirror?Number(ai.statScale??1):1,scale=Number(opts.statScale??defaultScale),bossLike=!!(opts.isBoss??def.boss)||['midterm','final'].includes(this.eventType),caster=isMagicCaster(this.content,monsterId),phaseProfile=phaseCombatProfile(monsterId);
   let attackRoleScale=1,magicRoleScale=1;if(caster){magicRoleScale=bossLike?1.55:1.30;attackRoleScale=.90}if(Number.isFinite(Number(phaseProfile.magicRoleScale)))magicRoleScale=Math.max(magicRoleScale,Number(phaseProfile.magicRoleScale));if(monsterId==='necromancer')magicRoleScale=Math.max(magicRoleScale,1.35);
   const hpScale=Number(opts.hpScale??(mirror?MIRROR_RULES.hpScale:scale))*(def.finalBoss?1.35:1),unit={...base,uid:opts.uid||`${monsterId}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`,monsterId,name:opts.name||def.name,isBoss:!!(opts.isBoss??def.boss),isSummon:!!opts.isSummon,summonedBy:opts.summonedBy||null,maxHp:Math.max(1,Math.round(base.maxHp*hpScale)),hp:0,alive:true,attack:base.attack*scale*attackRoleScale,magicAttack:base.magicAttack*scale*magicRoleScale,defense:base.defense*scale,magicDefense:base.magicDefense*scale,speed:base.speed*scale,statuses:[],skillUses:{},cooldowns:{},chargedSkill:null,rotationIndex:0,turnsTaken:0,maxMp:Number(ai.maxMp||ai.mp||base.maxEnergy||50),mp:Number(ai.mp??ai.maxMp??base.maxEnergy??50)};
-  unit.hp=unit.maxHp;Object.assign(unit,opts.flags||{});if(opts.forceBasicOnly)unit.forceBasicOnly=true;if(opts.soulLinked)unit.soulLinked=true;return unit;
+  unit.hp=unit.maxHp;Object.assign(unit,opts.flags||{});if(opts.forceBasicOnly)unit.forceBasicOnly=true;if(opts.soulLinked)unit.soulLinked=true;if(this.examContext)applyExamBreakToEnemy(unit,this.examContext);return unit;
  }
  start(){
   const hero=makeHeroBattleStats(this.heroSource),eq=this.equipmentStats||{};for(const k of ['attack','magicAttack','defense','magicDefense','speed','maxHp','maxEnergy'])hero[k]=Math.max(0,Number(hero[k]||0)+Number(eq[k]||0));hero.crit=Math.min(.60,Math.max(.05,Number(hero.crit||0)+Number(eq.crit||0)));hero.evade=Math.min(.50,Math.max(.02,Number(hero.evade||0)+Number(eq.evade||0)));hero.block=Math.min(.45,Math.max(.05,Number(hero.block||0)+Number(eq.block||0)));const enemy=this.makeEnemy(this.monsterId,{isBoss:['midterm','final'].includes(this.eventType)||monsterDef(this.monsterId).boss});
@@ -39,7 +40,7 @@ export class BattleEngine{
   this.state={hero,enemies:[enemy],selectedEnemyUid:enemy.uid,round:0,busy:false,ended:false,result:'',heroHp:hero.maxHp,heroEnergy:Math.round(hero.maxEnergy*.50),formal,logs:['⚔️ 戰鬥開始！先鎖定目標再選擇行動。'],enemyPower:this.enemyPower,eventType:this.eventType,monsterId:this.monsterId,battleLoot:[]};
   initFormalResources(this.state);if(formal)this.state.logs.push(`🎓 ${formal.cls}正式職業 Runtime 已啟動。`);
   const phaseContext=applyPhaseEntryModifiers(enemy,{monsterId:this.monsterId,campaignProgress:this.campaignProgress,scopeKey:this.phaseScopeKey});if(phaseContext){this.state.phaseContext=phaseContext;if(phaseContext.message)this.state.logs.push(phaseContext.message)}
-  applyBattleStartMechanics(this,enemy);this.emit({type:'start'});return this.snapshot();
+  if(this.examContext)initializeExamBattleState(this.state,this.examContext,msg=>this.state.logs.push(msg));applyBattleStartMechanics(this,enemy);this.emit({type:'start'});return this.snapshot();
  }
  target(){const alive=this.livingEnemies();let t=alive.find(x=>x.uid===this.state?.selectedEnemyUid)||alive[0]||null;if(t)this.state.selectedEnemyUid=t.uid;return t}
  log(message){if(!this.state)return;this.state.logs.push(message);if(this.state.logs.length>20)this.state.logs.shift();this.emit({type:'log',message})}
@@ -58,7 +59,7 @@ export class BattleEngine{
  }
  applyDamageToEnemy(unit,damage){const dealt=Math.max(0,Math.round(damage));unit.hp=Math.max(0,unit.hp-dealt);unit.alive=unit.hp>0;afterEnemyDamaged(this,unit);if(unit.hp<=0&&!unit.alive){this.log(`💀 ${unit.name}被擊倒。`);afterEnemyDefeated(this,unit);if(this.state.selectedEnemyUid===unit.uid)this.state.selectedEnemyUid=this.livingEnemies()[0]?.uid||null}this.emit({type:'enemy-state',unitUid:unit.uid});return dealt}
  async executeDamage(attacker,defender,action,presenter,side){
-  let result=resolveAttack(attacker,defender,action);if(side==='hero')result=modifyHeroDamageResult(this,result,action);else result=mitigateIncomingHeroDamage(this,result,action);
+  let result=resolveAttack(attacker,defender,action);if(side==='hero')result=modifyHeroDamageResult(this,result,action);else{result=mitigateIncomingHeroDamage(this,result,action);result=absorbExamShield(this.state,result,msg=>this.log(msg));}
   const attackerUid=side==='enemy'?attacker.uid:'hero',targetUid=side==='hero'?defender.uid:'hero';
   await this.present(presenter,{type:'attack',side,result,action,attackerName:attacker.name,attackerUid,targetName:defender.name,targetUid,monsterId:attacker.monsterId||null});
   if(result.damage){if(side==='hero')result.damage=this.applyDamageToEnemy(defender,result.damage);else{const before=this.state.heroHp;this.state.heroHp=Math.max(0,this.state.heroHp-result.damage);await afterEnemyDamageToHero(this,Math.max(0,before-this.state.heroHp),attacker,presenter);preventHeroDeath(this)}}
