@@ -1,24 +1,28 @@
-import { getGame, update } from '../core/store.js';
 import { assetUrl, applySceneLayout } from '../visual/scene-renderer.js';
 import { heroSpritePath } from '../character/hero-service.js';
 import { recordBeginnerSkillUsage } from '../character/job-awakening-service.js';
 import { worldForDate } from '../world/world-service.js';
-import { localDateString } from '../core/date.js';
-import { grantRewardBundle } from '../progression/reward-service.js';
-import { monsterDef } from './monster-database.js';
 import { availableBattleSkills } from './skill-service.js';
-import { recordPhaseBattle } from './phase-service.js';
 import { battleConsumableGroups, consumeBattleConsumable } from '../economy/economy-service.js';
 import { formalResourceView, formalCostIcon } from './formal-class-runtime.js';
+import { ensureEquipmentContent } from '../equipment/equipment-provider.js';
+import { settleBattle } from './battle-settlement-service.js';
+import { monsterDef } from './monster-database.js';
 
-let overlay=null,engine=null,onClose=null,settled=false;
+let overlay=null,engine=null,onClose=null,settled=false,settlement=null;
 function pct(v,m){return Math.max(0,Math.min(100,Math.round((Number(v)||0)/Math.max(1,Number(m)||1)*100)))}
 function statusHTML(unit){return(unit?.statuses||[]).map(s=>`<span class="status-token">${s.name||s.type} ${s.turns}</span>`).join('')}
-function enemySprite(monsterId,state='idle'){const def=monsterDef(monsterId);if(def.mirrorHero)return assetUrl(heroSpritePath(state==='battle'?'attack':'idle'));return assetUrl(`images/monsters/${monsterId}_${state}.png`)}
+function enemySprite(monsterId,state='idle'){const def=monsterDef(monsterId);if(def?.mirrorHero)return assetUrl(heroSpritePath(state==='battle'?'attack':'idle'));return assetUrl(`images/monsters/${monsterId}_${state}.png`)}
 function background(){const w=worldForDate(),src=assetUrl(w?.background||'images/backgrounds/week01_grassland.png');return`<div class="scene-background"><div class="scene-background-track"><img src="${src}" alt=""><img src="${src}" alt=""></div></div>`}
 function enemyActorsHTML(s){return s.enemies.filter(x=>x.alive!==false&&x.hp>0).map(x=>`<div class="scene-actor battle-actor enemy ${x.isSummon?'summon':''}" data-actor="enemy" data-enemy-uid="${x.uid}"><img src="${enemySprite(x.monsterId,'idle')}" alt="${x.name}"></div>`).join('')}
 function renderEnemyActors(s){const layer=overlay?.querySelector('#bEnemyLayer');if(!layer)return;layer.innerHTML=enemyActorsHTML(s);requestAnimationFrame(()=>applySceneLayout(overlay))}
 function renderResource(s){const view=formalResourceView(s),bar=overlay.querySelector('#bHeroEnergy'),text=overlay.querySelector('#bHeroEnergyText');bar.style.width=pct(view.value,view.max)+'%';const h=s.formal?.hound,extra=h?.alive?`　🐕 ${Math.round(h.hp)}/${h.maxHp}`:'';text.textContent=`${view.label} ${Math.round(view.value)} / ${Math.round(view.max)}${view.secondary?`　${view.secondary.label} ${Math.round(view.secondary.value)} / ${Math.round(view.secondary.max)}`:''}${s.formal?.combo?`　🔴 ${s.formal.combo}/3`:''}${extra}`}
+function resultHTML(s){
+  const win=s.result==='win',reward=settlement?.reward||{},drop=settlement?.drop,unlock=settlement?.unlocked?'<div class="small good">🏆 第一學期主線完成：第21週 Boss 回顧與寒暑假無盡之塔已解鎖。</div>':'';
+  const gain=win?`<div>⭐ EXP +${Number(reward.exp)||0}　💰 +${Number(reward.gold)||0} G</div>`:'';
+  const loot=win&&drop?`<div>🎁 ${drop.label||drop.itemData?.name||'裝備掉落'}</div>`:win?'<div class="small">本次沒有裝備掉落。</div>':'';
+  return `<div class="battle-result"><div class="battle-result-icon">${win?'🏆':'💀'}</div><h2>${win?'勝利！':'戰敗！'}</h2>${gain}${loot}${unlock}<button id="bClose" class="action-button ${win?'primary':''}">返回</button></div>`;
+}
 function renderState(s){
   if(!overlay||!s)return;const target=s.enemies.find(x=>x.uid===s.selectedEnemyUid)||s.enemies.find(x=>x.hp>0),hpH=pct(s.heroHp,s.hero.maxHp),hpE=pct(target?.hp,target?.maxHp);
   overlay.querySelector('#bHeroHp').style.width=hpH+'%';overlay.querySelector('#bHeroHpText').textContent=`❤️ ${Math.round(s.heroHp)} / ${s.hero.maxHp}`;renderResource(s);
@@ -26,7 +30,7 @@ function renderState(s){
   overlay.querySelector('#bEnemyName').textContent=target?.name||'敵人';overlay.querySelector('#bHeroStatus').innerHTML=statusHTML(s.hero);overlay.querySelector('#bEnemyStatus').innerHTML=statusHTML(target);overlay.querySelector('#bRound').textContent=`ROUND ${s.round}`;overlay.querySelector('#bLog').innerHTML=s.logs.slice(-9).map(x=>`<div>${x}</div>`).join('');
   overlay.querySelector('#bTargetStrip').innerHTML=s.enemies.map(x=>`<button class="battle-target ${x.uid===s.selectedEnemyUid?'selected':''}" data-target="${x.uid}" ${x.hp<=0?'disabled':''}>${x.isSummon?'➕':x.isBoss?'👑':'👹'} ${x.name}<small>${Math.max(0,Math.round(x.hp))}/${x.maxHp}${x.mp!=null?`｜MP ${Math.round(x.mp)}`:''}</small></button>`).join('');
   renderEnemyActors(s);overlay.querySelectorAll('[data-battle-action],#bSkills,#bItems').forEach(b=>b.disabled=s.busy||s.ended);
-  if(s.ended){const r=overlay.querySelector('#bResult');r.innerHTML=`<div class="battle-result"><div class="battle-result-icon">${s.result==='win'?'🏆':'💀'}</div><h2>${s.result==='win'?'勝利！':'戰敗！'}</h2><button id="bClose" class="action-button ${s.result==='win'?'primary':''}">返回副本</button></div>`;r.querySelector('#bClose').onclick=closeBattle}
+  if(s.ended){const r=overlay.querySelector('#bResult');r.innerHTML=resultHTML(s);r.querySelector('#bClose').onclick=closeBattle}
 }
 async function presenter(event,s){
   renderState(s);if(!overlay||event.type!=='attack')return;
@@ -36,23 +40,17 @@ async function presenter(event,s){
   else if(actor){const img=actor.querySelector('img');img.src=enemySprite(event.monsterId||engine.monsterId,'battle');await actor.animate([{transform:'translate(-50%,-100%)'},{transform:'translate(calc(-50% - 55px),-100%)',offset:.48},{transform:'translate(-50%,-100%)'}],{duration:460,easing:'ease-out'}).finished.catch(()=>{});img.src=enemySprite(event.monsterId||engine.monsterId,'idle')}
   if(event.result?.damage>0)target.animate([{filter:'brightness(1)'},{filter:'brightness(2.2)'},{filter:'brightness(1)'}],{duration:220});
 }
-function settle(result){
-  if(settled||!engine?.state)return;settled=true;
-  update(()=>{const g=getGame(),h=g.hero,s=engine.state,primary=s.enemies.find(x=>!x.isSummon&&x.monsterId===engine.monsterId)||s.enemies.find(x=>!x.isSummon)||s.enemies[0]||null;
-    for(const loot of s.battleLoot||[]){
-      if(loot?.type==='gold')h.gold=Math.max(0,Number(h.gold)||0)+Math.max(0,Number(loot.amount)||0);
-      if(loot?.type==='item'&&loot.item){g.inventory=Array.isArray(g.inventory)?g.inventory:[];g.inventory.push({id:`steal_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`,...loot.item,itemSnapshot:{...loot.item}})}
-    }
-    if(result==='win')grantRewardBundle(h,{gold:15,exp:15});g.campaignProgress=g.campaignProgress||{};const phaseRecord=recordPhaseBattle({campaignProgress:g.campaignProgress,monsterId:engine.monsterId,result,rounds:s.round,enemyHp:primary?.hp||0,enemyMaxHp:primary?.maxHp||0,heroHp:s.heroHp,heroMaxHp:s.hero.maxHp,date:localDateString(),eventType:engine.eventType,scopeKey:engine.phaseScopeKey});g.battleRecords=g.battleRecords||[];g.battleRecords.push({id:`battle_${Date.now().toString(36)}`,date:localDateString(),monsterId:engine.monsterId,enemyName:monsterDef(engine.monsterId).name,enemyPower:engine.enemyPower,result,eventType:engine.eventType,rounds:s.round,battleV2:true,heroHp:Math.max(0,Number(s.heroHp)||0),heroMaxHp:Number(s.hero.maxHp)||0,enemyHp:Math.max(0,Number(primary?.hp)||0),enemyMaxHp:Number(primary?.maxHp)||0,phase:phaseRecord?{chainId:phaseRecord.chainId,phaseNumber:phaseRecord.phaseNumber,enemyDamageRatio:phaseRecord.enemyDamageRatio,scopeKey:phaseRecord.scopeKey}:null})})
-}
+function settle(result){if(settled||!engine?.state)return;settled=true;settlement=settleBattle(engine,result)}
 export async function openBattle(battleEngine,closeCallback){
-  engine=battleEngine;onClose=closeCallback;settled=false;const[skills]=await Promise.all([availableBattleSkills(),engine.prepare()]),s=engine.start(),def=monsterDef(engine.monsterId);
+  engine=battleEngine;onClose=closeCallback;settled=false;settlement=null;const[skills,,equipmentContent]=await Promise.all([availableBattleSkills(),engine.prepare(),ensureEquipmentContent()]);
+  if(['replay','tower'].includes(engine.eventType)&&!equipmentContent){alert('裝備資料庫載入失敗，本次未開始戰鬥，避免遺失保證掉落。');const cb=onClose;engine=null;onClose=null;cb?.();return}
+  const s=engine.start();
   overlay=document.createElement('div');overlay.className='battle-overlay-v2';
-  overlay.innerHTML=`<div class="battle-window-v2"><div class="battle-top-v2"><div class="battle-unit-v2"><b>${s.hero.name}</b><div class="hp-bar-v2"><i id="bHeroHp"></i></div><div id="bHeroHpText" class="bar-text"></div><div class="energy-bar-v2"><i id="bHeroEnergy"></i></div><div id="bHeroEnergyText" class="bar-text"></div><div id="bHeroStatus" class="battle-status-line"></div></div><div class="battle-unit-v2"><b id="bEnemyName">${def.name}</b><div class="hp-bar-v2"><i id="bEnemyHp"></i></div><div id="bEnemyHpText" class="bar-text"></div><div id="bEnemyStatus" class="battle-status-line"></div></div></div><div id="bTargetStrip" class="battle-target-strip"></div><div class="battle-arena-v2" data-scene="battle">${background()}<div id="bRound" class="battle-round">ROUND 0</div><div class="scene-actor battle-actor hero" data-actor="hero" data-battle-actor="hero"><img src="${assetUrl(heroSpritePath('idle'))}" alt="勇者"></div><div id="bEnemyLayer"></div></div><div id="bLog" class="battle-log-v2"></div><div class="battle-actions-v2"><button data-battle-action="attack" class="action-button red">⚔️ 攻擊<small>普通攻擊</small></button><button id="bSkills" class="action-button purple">✨ 技能<small>${s.formal?s.formal.cls:'最多4槽'}</small></button><button id="bItems" class="action-button blue">🎒 道具<small>戰鬥消耗品</small></button><button id="bCancel" class="action-button">關閉<small>不結算</small></button></div><div id="bSubmenu" class="battle-submenu-v2"></div><div id="bResult"></div></div>`;
-  document.body.appendChild(overlay);engine.subscribe((state,event)=>{if(event.type==='item-used'&&event.stackKey)consumeBattleConsumable(event.stackKey);renderState(state);if(event.type==='end')settle(event.result)});renderState(s);requestAnimationFrame(()=>applySceneLayout(overlay));
+  overlay.innerHTML=`<div class="battle-window-v2"><div class="battle-top-v2"><div class="battle-unit-v2"><b>${s.hero.name}</b><div class="hp-bar-v2"><i id="bHeroHp"></i></div><div id="bHeroHpText" class="bar-text"></div><div class="energy-bar-v2"><i id="bHeroEnergy"></i></div><div id="bHeroEnergyText" class="bar-text"></div><div id="bHeroStatus" class="battle-status-line"></div></div><div class="battle-unit-v2"><b id="bEnemyName">${s.enemies[0]?.name||'敵人'}</b><div class="hp-bar-v2"><i id="bEnemyHp"></i></div><div id="bEnemyHpText" class="bar-text"></div><div id="bEnemyStatus" class="battle-status-line"></div></div></div><div id="bTargetStrip" class="battle-target-strip"></div><div class="battle-arena-v2" data-scene="battle">${background()}<div id="bRound" class="battle-round">ROUND 0</div><div class="scene-actor battle-actor hero" data-actor="hero" data-battle-actor="hero"><img src="${assetUrl(heroSpritePath('idle'))}" alt="勇者"></div><div id="bEnemyLayer"></div></div><div id="bLog" class="battle-log-v2"></div><div class="battle-actions-v2"><button data-battle-action="attack" class="action-button red">⚔️ 攻擊<small>普通攻擊</small></button><button id="bSkills" class="action-button purple">✨ 技能<small>${s.formal?s.formal.cls:'最多4槽'}</small></button><button id="bItems" class="action-button blue">🎒 道具<small>戰鬥消耗品</small></button><button id="bCancel" class="action-button">關閉<small>不結算</small></button></div><div id="bSubmenu" class="battle-submenu-v2"></div><div id="bResult"></div></div>`;
+  document.body.appendChild(overlay);engine.subscribe((state,event)=>{if(event.type==='item-used'&&event.stackKey)consumeBattleConsumable(event.stackKey);if(event.type==='end')settle(event.result);renderState(state)});renderState(s);requestAnimationFrame(()=>applySceneLayout(overlay));
   overlay.querySelector('[data-battle-action="attack"]').onclick=()=>engine.playerAction({kind:'attack',name:'攻擊'},presenter);
   overlay.querySelector('#bSkills').onclick=()=>{const box=overlay.querySelector('#bSubmenu');box.innerHTML=skills.map((sk,i)=>`<button class="battle-choice-v2" data-skill-index="${i}"><strong>${sk.icon||'✨'} ${sk.name}　${sk.formalClass?formalCostIcon(engine.state,sk):'⚡'}${Number(sk.cost)||0}</strong><span>${sk.description||''}</span></button>`).join('');box.classList.toggle('show');box.querySelectorAll('[data-skill-index]').forEach(b=>b.onclick=async()=>{const skill=skills[Number(b.dataset.skillIndex)];if(!skill)return;box.classList.remove('show');const used=await engine.playerAction({...skill,kind:'skill'},presenter);if(used&&!skill.formalClass)recordBeginnerSkillUsage(skill.id)})};
   overlay.querySelector('#bItems').onclick=()=>{const box=overlay.querySelector('#bSubmenu'),items=battleConsumableGroups();box.innerHTML=items.length?items.map((row,i)=>`<button class="battle-choice-v2" data-item-index="${i}"><strong>${row.item?.icon||'🧪'} ${row.name}　×${row.count}</strong><span>${row.item?.description||'戰鬥中使用後消耗 1 個。'}</span></button>`).join(''):'<div class="card small">沒有可用的戰鬥消耗品。</div>';box.classList.add('show');box.querySelectorAll('[data-item-index]').forEach(b=>b.onclick=()=>{const row=items[Number(b.dataset.itemIndex)];if(!row)return;box.classList.remove('show');engine.playerAction({kind:'item',name:row.name,icon:row.item?.icon||'🧪',stackKey:row.stackKey,effectType:row.item?.effectType||'',effectValue:Number(row.item?.effectValue)||0,effectTurns:Number(row.item?.effectTurns)||0},presenter)})};
   overlay.querySelector('#bTargetStrip').onclick=e=>{const b=e.target.closest('[data-target]');if(b)engine.selectTarget(b.dataset.target)};overlay.querySelector('#bCancel').onclick=closeBattle;
 }
-export function closeBattle(){overlay?.remove();overlay=null;engine=null;onClose?.();onClose=null}
+export function closeBattle(){overlay?.remove();overlay=null;engine=null;settlement=null;onClose?.();onClose=null}
