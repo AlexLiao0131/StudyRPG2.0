@@ -245,7 +245,7 @@ export function mitigateIncomingHeroDamage(engine,result,action){
   const hero=engine.state.hero,f=engine.state.formal,type=action?.damageType||action?.type||'physical';
   if(hero.statuses?.some(s=>s.mods?.immuneDamage)){result.damage=0;result.type='block';return result}
   if(type!=='physical'&&hero.statuses?.some(s=>s.mods?.magicImmune)){result.damage=0;result.type='block';return result}
-  if(f.cls==='獵人'&&f.hound?.alive&&f.hound.hp>0&&Math.random()<.35){
+  if(!action?.bypassHound&&f.cls==='獵人'&&f.hound?.alive&&f.hound.hp>0&&Math.random()<.35){
     const dmg=Math.max(0,Math.round(result.damage));f.hound.hp=Math.max(0,f.hound.hp-dmg);
     if(f.hound.hp<=0){f.hound.alive=false;engine.log(`💀 獵犬替主人承受 ${dmg} 傷害後倒下。`)}else engine.log(`🐕 獵犬替主人承受 ${dmg} 傷害（${Math.round(f.hound.hp)}/${f.hound.maxHp}）。`);
     result.damage=0;result.type='block';return result;
@@ -301,7 +301,7 @@ export async function formalTurnStart(engine,presenter){
 
 export async function formalAllyTurn(engine,unit,presenter){
   if(!unit||unit.alive===false||unit.hp<=0)return;
-  let skip=false;
+  let skip=false;const feared=(unit.statuses||[]).some(s=>s.type==='fear'&&s.turns>0);if(feared&&Math.random()<.35){skip=true;engine.log('🐕 獵犬受到恐懼影響，本回合無法行動。')}
   for(const st of [...(unit.statuses||[])]){
     if(['poison','burn','bleed'].includes(st.type)&&Number(st.power)>0){unit.hp=Math.max(0,unit.hp-Math.max(1,Math.round(st.power)));engine.log(`${st.name||st.type}：獵犬受到持續傷害。`)}
     if(['stun','paralysis','freeze'].includes(st.type)&&st.guaranteedSkip!==false)skip=true;
@@ -393,7 +393,7 @@ export async function executeFormalSkill(engine,skill,presenter){
     }
     if(skill.id==='priest_holy_prayer'){priestHeal=true;healHero(engine,state.hero.maxHp*.55+virtueNow(engine)*1.5,'神聖禱言',{activePriestHeal:true});return{ok:true}}
     if(skill.id==='priest_cleanse'){
-      const before=state.hero.statuses.length;state.hero.statuses=state.hero.statuses.filter(s=>!['poison','disease','curse'].includes(s.type));
+      const before=state.hero.statuses.length;state.hero.statuses=state.hero.statuses.filter(s=>!['poison','disease','curse','swamp_corruption'].includes(s.type));
       engine.log(`✨ 淨化移除 ${before-state.hero.statuses.length} 個負面狀態。`);return{ok:true}
     }
     if(skill.id==='priest_miracle'){f.miracle=true;addStatus(state.hero,{type:'miracle',name:'🌟 奇蹟',turns:999,effectType:'buff',mods:{},unstealable:true});return{ok:true}}

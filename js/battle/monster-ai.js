@@ -1,5 +1,6 @@
 import { STATUS_DEFS } from './battle-config.js';
 import { phaseEntryRule, previousPhaseMonsterId } from './phase-database.js';
+import { lateSkillEntries, lateSkillUsable } from './late-monster-runtime.js';
 
 export function monsterAI(db,monsterId){
   const direct=db?.monsterAI?.[monsterId]||{};
@@ -47,6 +48,7 @@ export function skillUsable(engine,unit,entry,skill){
 
   const ai=monsterAI(engine?.content,unit.monsterId);
   if(ai.doNotReapplyActiveCurse&&skill.status?.id==='curse'&&targetHasStatus(engine,'curse'))return false;
+  if(!lateSkillUsable(engine,unit,entry,skill))return false;
   return true;
 }
 
@@ -79,7 +81,7 @@ export function chooseEnemySkill(engine,unit){
   }
 
   const pool=[];
-  for(const entry of ai.skills||[]){
+  for(const entry of lateSkillEntries(engine,unit,ai.skills||[])){
     const skill=monsterSkill(db,entry.id);if(!skillUsable(engine,unit,entry,skill))continue;
     pool.push({skill,weight:Math.max(0,Number(entry.weight||1))});
   }
@@ -98,5 +100,6 @@ export function statusFromMonsterSkill(status,target){
   if(status.defMultiplier!=null)mods.defense=(target.defense||0)*(Number(status.defMultiplier)-1);
   if(status.mdefMultiplier!=null)mods.magicDefense=(target.magicDefense||0)*(Number(status.mdefMultiplier)-1);
   if(status.accuracyPenalty!=null)mods.hit=-Number(status.accuracyPenalty);
+  if(status.healingReceivedMultiplier!=null)mods.healingReceived=Number(status.healingReceivedMultiplier)-1;
   const def=STATUS_DEFS[status.id]||{};return {type:status.id,turns:Number(status.duration||def.defaultTurns||1),power:0,maxHpDot:Number(status.maxHpDot||0),mods,effectType:'debuff',name:status.name||def.name||status.id,guaranteedSkip:['stun','paralysis'].includes(status.id)};
 }
