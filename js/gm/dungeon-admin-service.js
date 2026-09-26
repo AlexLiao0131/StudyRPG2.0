@@ -9,7 +9,7 @@ export function resetDailyChallenge(dateStr=localDateString()){
   let ignoredCount=0;
   update(()=>{
     const g=getGame();g.campaignProgress=g.campaignProgress||{};g.campaignProgress.dailyChallengeResets=g.campaignProgress.dailyChallengeResets||{};
-    const records=(g.battleRecords||[]).filter(r=>r?.date===dateStr&&r?.eventType==='daily'&&(r.result==='win'||r.result==='lose'));
+    const records=(g.battleRecords||[]).filter(r=>r?.date===dateStr&&['daily','midterm','final'].includes(r?.eventType)&&(r.result==='win'||r.result==='lose'));
     for(const r of records)if(!r.id)r.id=uid();
     const old=g.campaignProgress.dailyChallengeResets[dateStr]||{},ids=new Set(Array.isArray(old.ignoredRecordIds)?old.ignoredRecordIds:[]);
     for(const r of records)ids.add(String(r.id));
