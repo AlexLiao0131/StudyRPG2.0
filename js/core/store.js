@@ -15,7 +15,7 @@ function normalizeHero(raw={},fallback={}){
     name:String(raw.name||fallback.name||'勇者'),gender:raw.gender==='female'?'female':'male',
     heroClass:String(raw.heroClass||fallback.heroClass||'見習勇者'),jobAwakened:!!raw.jobAwakened,
     level:Math.max(1,Number(raw.level)||1),exp:Math.max(0,Number(raw.exp)||0),maxExp:Math.max(1,Number(raw.maxExp)||100),
-    gold:Math.max(0,Number(raw.gold)||0),lotteryCoins:Math.max(0,Number(raw.lotteryCoins)||0),virtue:Math.max(0,Number(raw.virtue)||0),
+    gold:Math.max(0,Number(raw.gold)||0),lotteryCoins:Math.max(0,Number(raw.lotteryCoins)||0),virtue:Math.max(0,Number(raw.virtue)||0),enhancementShards:Math.max(0,Number(raw.enhancementShards)||0),
     stats:{str:Number(stats.str)||0,agi:Number(stats.agi)||0,int:Number(stats.int)||0,will:Number(stats.will)||0},
     jobScores:obj(raw.jobScores),knownSkills:arr(raw.knownSkills),skills:arr(raw.skills),equippedSkills:arr(raw.equippedSkills),
     jobPassive:String(raw.jobPassive||''),skillUsage:obj(raw.skillUsage),skillUsageByDate:obj(raw.skillUsageByDate),jobCandidateHistory:arr(raw.jobCandidateHistory),
@@ -31,6 +31,7 @@ function normalizeGame(raw={},fallback={}){
     semester:{...fallback.semester,startDate:String(sem.startDate||fallback.semester?.startDate||''),endDate:String(sem.endDate||fallback.semester?.endDate||''),schoolWeekdays:Array.isArray(sem.schoolWeekdays)?sem.schoolWeekdays.map(Number):clone(fallback.semester?.schoolWeekdays||[1,2,3,4,5]),worldState:String(sem.worldState||fallback.semester?.worldState||'normal')},
     tasks:arr(raw.tasks),taskRecords:arr(raw.taskRecords),activeTasks:obj(raw.activeTasks),learningProgress:arr(raw.learningProgress),
     inventory,inventoryTombstones:tombstones,shopItems:arr(raw.shopItems),lotteryPool:arr(raw.lotteryPool),lotteryCoinLedger:obj(raw.lotteryCoinLedger),assetAudit:obj(raw.assetAudit),couponRequests:arr(raw.couponRequests),battleRecords:arr(raw.battleRecords),gmAudit:arr(raw.gmAudit),semesterArchives:arr(raw.semesterArchives),campaignProgress:obj(raw.campaignProgress),
+    storyFlags:obj(raw.storyFlags),holidayTower:obj(raw.holidayTower),balanceSettings:{...obj(fallback.balanceSettings),...obj(raw.balanceSettings)},semesterGearBaseline:clone(raw.semesterGearBaseline||null),uniqueEquipmentDefinitions:obj(raw.uniqueEquipmentDefinitions),
     social:{friends:arr(raw.social?.friends),inbox:arr(raw.social?.inbox)},
     settings:{parentPinHash:String(settings.parentPinHash||''),cloud:obj(settings.cloud),familyAccess:obj(settings.familyAccess||{enabled:true}),holidayTower:obj(settings.holidayTower||{dailyLimit:3})},
     dailyBalance:clone(raw.dailyBalance||raw.dailyBalanceV10114||null),
@@ -115,6 +116,11 @@ function mergeReadonlyGame(local={},remote={}){
     lotteryCoinLedger:deepMerge(remote.lotteryCoinLedger,local.lotteryCoinLedger),
     assetAudit:deepMerge(remote.assetAudit,local.assetAudit),
     campaignProgress:deepMerge(remote.campaignProgress,local.campaignProgress),
+    storyFlags:deepMerge(remote.storyFlags,local.storyFlags),
+    holidayTower:deepMerge(remote.holidayTower,local.holidayTower),
+    balanceSettings:deepMerge(remote.balanceSettings,local.balanceSettings),
+    semesterGearBaseline:clone(local.semesterGearBaseline??remote.semesterGearBaseline??null),
+    uniqueEquipmentDefinitions:deepMerge(remote.uniqueEquipmentDefinitions,local.uniqueEquipmentDefinitions),
     social:{friends:mergeRows(local.social?.friends,remote.social?.friends),inbox:mergeRows(local.social?.inbox,remote.social?.inbox)},
     settings
   };
