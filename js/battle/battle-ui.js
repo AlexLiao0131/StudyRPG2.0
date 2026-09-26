@@ -1,4 +1,6 @@
 import { assetUrl, applySceneLayout } from '../visual/scene-renderer.js';
+import { ensureVisualContent } from '../visual/visual-provider.js';
+import { playBattlePresentation, renderBattleStatusFx, renderEquipmentCompanions } from '../visual/presentation-runtime.js';
 import { heroSpritePath } from '../character/hero-service.js';
 import { recordBeginnerSkillUsage } from '../character/job-awakening-service.js';
 import { worldForDate } from '../world/world-service.js';
@@ -9,13 +11,15 @@ import { ensureEquipmentContent } from '../equipment/equipment-provider.js';
 import { settleBattle } from './battle-settlement-service.js';
 import { monsterDef } from './monster-database.js';
 
-let overlay=null,engine=null,onClose=null,settled=false,settlement=null;
+let overlay=null,engine=null,onClose=null,settled=false,settlement=null,heroPresentationAction=null;
 function pct(v,m){return Math.max(0,Math.min(100,Math.round((Number(v)||0)/Math.max(1,Number(m)||1)*100)))}
 function statusHTML(unit){return(unit?.statuses||[]).map(s=>`<span class="status-token">${s.name||s.type} ${s.turns}</span>`).join('')}
 function enemySprite(monsterId,state='idle'){const def=monsterDef(monsterId);if(def?.mirrorHero)return assetUrl(heroSpritePath(state==='battle'?'attack':'idle'));return assetUrl(`images/monsters/${monsterId}_${state}.png`)}
 function background(){const w=worldForDate(),src=assetUrl(w?.background||'images/backgrounds/week01_grassland.png');return`<div class="scene-background"><div class="scene-background-track"><img src="${src}" alt=""><img src="${src}" alt=""></div></div>`}
-function enemyActorsHTML(s){return s.enemies.filter(x=>x.alive!==false&&x.hp>0).map(x=>`<div class="scene-actor battle-actor enemy ${x.isSummon?'summon':''}" data-actor="enemy" data-enemy-uid="${x.uid}"><img src="${enemySprite(x.monsterId,'idle')}" alt="${x.name}"></div>`).join('')}
-function renderEnemyActors(s){const layer=overlay?.querySelector('#bEnemyLayer');if(!layer)return;layer.innerHTML=enemyActorsHTML(s);requestAnimationFrame(()=>applySceneLayout(overlay))}
+function enemyActorsHTML(s){return s.enemies.filter(x=>x.alive!==false&&x.hp>0).map(x=>`<div class="scene-actor battle-actor enemy ${x.isSummon?'summon':''}" data-actor="enemy" data-enemy-uid="${x.uid}" data-monster-id="${x.monsterId||''}"><img src="${enemySprite(x.monsterId,'idle')}" alt="${x.name}"></div>`).join('')}
+function arena(){return overlay?.querySelector('.battle-arena-v2')||null}
+function renderEnemyActors(s){const layer=overlay?.querySelector('#bEnemyLayer');if(!layer)return;layer.innerHTML=enemyActorsHTML(s);applySceneLayout(overlay)}
+function renderVisualAttachments(s){const a=arena();if(!a)return;renderBattleStatusFx(a,s);renderEquipmentCompanions(a,s)}
 function renderResource(s){const view=formalResourceView(s),bar=overlay.querySelector('#bHeroEnergy'),text=overlay.querySelector('#bHeroEnergyText');bar.style.width=pct(view.value,view.max)+'%';const h=s.formal?.hound,extra=h?.alive?`　🐕 ${Math.round(h.hp)}/${h.maxHp}`:'';text.textContent=`${view.label} ${Math.round(view.value)} / ${Math.round(view.max)}${view.secondary?`　${view.secondary.label} ${Math.round(view.secondary.value)} / ${Math.round(view.secondary.max)}`:''}${s.formal?.combo?`　🔴 ${s.formal.combo}/3`:''}${extra}`}
 function resultHTML(s){
   const win=s.result==='win',reward=settlement?.reward||{},drop=settlement?.drop,unlock=settlement?.unlocked?'<div class="small good">🏆 第一學期主線完成：第21週 Boss 回顧與寒暑假無盡之塔已解鎖。</div>':'';
@@ -29,28 +33,36 @@ function renderState(s){
   overlay.querySelector('#bEnemyHp').style.width=hpE+'%';overlay.querySelector('#bEnemyHpText').textContent=`❤️ ${Math.max(0,Math.round(target?.hp||0))} / ${target?.maxHp||0}`;
   overlay.querySelector('#bEnemyName').textContent=target?.name||'敵人';overlay.querySelector('#bHeroStatus').innerHTML=statusHTML(s.hero);overlay.querySelector('#bEnemyStatus').innerHTML=statusHTML(target);overlay.querySelector('#bRound').textContent=`ROUND ${s.round}`;overlay.querySelector('#bLog').innerHTML=s.logs.slice(-9).map(x=>`<div>${x}</div>`).join('');
   overlay.querySelector('#bTargetStrip').innerHTML=s.enemies.map(x=>`<button class="battle-target ${x.uid===s.selectedEnemyUid?'selected':''}" data-target="${x.uid}" ${x.hp<=0?'disabled':''}>${x.isSummon?'➕':x.isBoss?'👑':'👹'} ${x.name}<small>${Math.max(0,Math.round(x.hp))}/${x.maxHp}${x.mp!=null?`｜MP ${Math.round(x.mp)}`:''}</small></button>`).join('');
-  renderEnemyActors(s);overlay.querySelectorAll('[data-battle-action],#bSkills,#bItems').forEach(b=>b.disabled=s.busy||s.ended);
+  renderEnemyActors(s);renderVisualAttachments(s);overlay.querySelectorAll('[data-battle-action],#bSkills,#bItems').forEach(b=>b.disabled=s.busy||s.ended);
   if(s.ended){const r=overlay.querySelector('#bResult');r.innerHTML=resultHTML(s);r.querySelector('#bClose').onclick=closeBattle}
+}
+async function fallbackAttackAnimation(event,actor,target){
+  if(actor&&event.side==='hero'){const img=actor.querySelector('img');img.src=assetUrl(heroSpritePath('attack'));await actor.animate([{transform:'translate(0,0)'},{transform:'translate(70px,0)',offset:.48},{transform:'translate(0,0)'}],{duration:420,easing:'ease-out'}).finished.catch(()=>{});img.src=assetUrl(heroSpritePath('idle'))}
+  else if(actor){const img=actor.querySelector('img');img.src=enemySprite(event.monsterId||engine.monsterId,'battle');await actor.animate([{transform:'translate(0,0)'},{transform:'translate(-55px,0)',offset:.48},{transform:'translate(0,0)'}],{duration:460,easing:'ease-out'}).finished.catch(()=>{});img.src=enemySprite(event.monsterId||engine.monsterId,'idle')}
+  if(event.result?.damage>0)target?.animate([{filter:'brightness(1)'},{filter:'brightness(2.2)'},{filter:'brightness(1)'}],{duration:220});
 }
 async function presenter(event,s){
   renderState(s);if(!overlay||event.type!=='attack')return;
   const actor=event.attackerUid==='hound'?null:event.side==='hero'?overlay.querySelector('[data-battle-actor="hero"]'):overlay.querySelector(`[data-enemy-uid="${event.attackerUid}"]`),target=event.side==='hero'?overlay.querySelector(`[data-enemy-uid="${event.targetUid}"]`):overlay.querySelector('[data-battle-actor="hero"]');
   if(!target)return;
-  if(actor&&event.side==='hero'){const img=actor.querySelector('img');img.src=assetUrl(heroSpritePath('attack'));await actor.animate([{transform:'translate(-50%,-100%)'},{transform:'translate(calc(-50% + 70px),-100%)',offset:.48},{transform:'translate(-50%,-100%)'}],{duration:420,easing:'ease-out'}).finished.catch(()=>{});img.src=assetUrl(heroSpritePath('idle'))}
-  else if(actor){const img=actor.querySelector('img');img.src=enemySprite(event.monsterId||engine.monsterId,'battle');await actor.animate([{transform:'translate(-50%,-100%)'},{transform:'translate(calc(-50% - 55px),-100%)',offset:.48},{transform:'translate(-50%,-100%)'}],{duration:460,easing:'ease-out'}).finished.catch(()=>{});img.src=enemySprite(event.monsterId||engine.monsterId,'idle')}
-  if(event.result?.damage>0)target.animate([{filter:'brightness(1)'},{filter:'brightness(2.2)'},{filter:'brightness(1)'}],{duration:220});
+  const attackerUnit=event.side==='enemy'?s.enemies.find(x=>x.uid===event.attackerUid)||null:null,targetUnit=event.side==='hero'?s.enemies.find(x=>x.uid===event.targetUid)||null:null;
+  let action=event.action||{};
+  if(event.side==='hero'&&!event.action?.equipmentFollowup&&heroPresentationAction)action=heroPresentationAction;
+  if(event.side==='enemy'&&attackerUnit?.lastSkillId)action=engine.skillFor(attackerUnit.lastSkillId)||action;
+  const played=actor?await playBattlePresentation({arena:arena(),side:event.side,actor,target,action,attackerUnit,targetUnit}):false;
+  if(!played)await fallbackAttackAnimation(event,actor,target);else if(event.result?.damage>0)target.animate([{filter:'brightness(1)'},{filter:'brightness(2.2)'},{filter:'brightness(1)'}],{duration:220});
 }
 function settle(result){if(settled||!engine?.state)return;settled=true;settlement=settleBattle(engine,result)}
 export async function openBattle(battleEngine,closeCallback){
-  engine=battleEngine;onClose=closeCallback;settled=false;settlement=null;const[skills,,equipmentContent]=await Promise.all([availableBattleSkills(),engine.prepare(),ensureEquipmentContent()]);
+  engine=battleEngine;onClose=closeCallback;settled=false;settlement=null;heroPresentationAction=null;const[skills,,equipmentContent]=await Promise.all([availableBattleSkills(),engine.prepare(),ensureEquipmentContent(),ensureVisualContent()]);
   if(['replay','tower'].includes(engine.eventType)&&!equipmentContent){alert('裝備資料庫載入失敗，本次未開始戰鬥，避免遺失保證掉落。');const cb=onClose;engine=null;onClose=null;cb?.();return}
   const s=engine.start();
   overlay=document.createElement('div');overlay.className='battle-overlay-v2';
   overlay.innerHTML=`<div class="battle-window-v2"><div class="battle-top-v2"><div class="battle-unit-v2"><b>${s.hero.name}</b><div class="hp-bar-v2"><i id="bHeroHp"></i></div><div id="bHeroHpText" class="bar-text"></div><div class="energy-bar-v2"><i id="bHeroEnergy"></i></div><div id="bHeroEnergyText" class="bar-text"></div><div id="bHeroStatus" class="battle-status-line"></div></div><div class="battle-unit-v2"><b id="bEnemyName">${s.enemies[0]?.name||'敵人'}</b><div class="hp-bar-v2"><i id="bEnemyHp"></i></div><div id="bEnemyHpText" class="bar-text"></div><div id="bEnemyStatus" class="battle-status-line"></div></div></div><div id="bTargetStrip" class="battle-target-strip"></div><div class="battle-arena-v2" data-scene="battle">${background()}<div id="bRound" class="battle-round">ROUND 0</div><div class="scene-actor battle-actor hero" data-actor="hero" data-battle-actor="hero"><img src="${assetUrl(heroSpritePath('idle'))}" alt="勇者"></div><div id="bEnemyLayer"></div></div><div id="bLog" class="battle-log-v2"></div><div class="battle-actions-v2"><button data-battle-action="attack" class="action-button red">⚔️ 攻擊<small>普通攻擊</small></button><button id="bSkills" class="action-button purple">✨ 技能<small>${s.formal?s.formal.cls:'最多4槽'}</small></button><button id="bItems" class="action-button blue">🎒 道具<small>戰鬥消耗品</small></button><button id="bCancel" class="action-button">關閉<small>不結算</small></button></div><div id="bSubmenu" class="battle-submenu-v2"></div><div id="bResult"></div></div>`;
-  document.body.appendChild(overlay);engine.subscribe((state,event)=>{if(event.type==='item-used'&&event.stackKey)consumeBattleConsumable(event.stackKey);if(event.type==='end')settle(event.result);renderState(state)});renderState(s);requestAnimationFrame(()=>applySceneLayout(overlay));
-  overlay.querySelector('[data-battle-action="attack"]').onclick=()=>engine.playerAction({kind:'attack',name:'攻擊'},presenter);
-  overlay.querySelector('#bSkills').onclick=()=>{const box=overlay.querySelector('#bSubmenu');box.innerHTML=skills.map((sk,i)=>`<button class="battle-choice-v2" data-skill-index="${i}"><strong>${sk.icon||'✨'} ${sk.name}　${sk.formalClass?formalCostIcon(engine.state,sk):'⚡'}${Number(sk.cost)||0}</strong><span>${sk.description||''}</span></button>`).join('');box.classList.toggle('show');box.querySelectorAll('[data-skill-index]').forEach(b=>b.onclick=async()=>{const skill=skills[Number(b.dataset.skillIndex)];if(!skill)return;box.classList.remove('show');const used=await engine.playerAction({...skill,kind:'skill'},presenter);if(used&&!skill.formalClass)recordBeginnerSkillUsage(skill.id)})};
+  document.body.appendChild(overlay);engine.subscribe((state,event)=>{if(event.type==='item-used'&&event.stackKey)consumeBattleConsumable(event.stackKey);if(event.type==='end')settle(event.result);renderState(state)});renderState(s);applySceneLayout(overlay);
+  overlay.querySelector('[data-battle-action="attack"]').onclick=async()=>{heroPresentationAction={id:'basic_attack',kind:'attack',actionType:'melee'};try{await engine.playerAction({kind:'attack',name:'攻擊'},presenter)}finally{heroPresentationAction=null}};
+  overlay.querySelector('#bSkills').onclick=()=>{const box=overlay.querySelector('#bSubmenu');box.innerHTML=skills.map((sk,i)=>`<button class="battle-choice-v2" data-skill-index="${i}"><strong>${sk.icon||'✨'} ${sk.name}　${sk.formalClass?formalCostIcon(engine.state,sk):'⚡'}${Number(sk.cost)||0}</strong><span>${sk.description||''}</span></button>`).join('');box.classList.toggle('show');box.querySelectorAll('[data-skill-index]').forEach(b=>b.onclick=async()=>{const skill=skills[Number(b.dataset.skillIndex)];if(!skill)return;box.classList.remove('show');heroPresentationAction=skill;try{const used=await engine.playerAction({...skill,kind:'skill'},presenter);if(used&&!skill.formalClass)recordBeginnerSkillUsage(skill.id)}finally{heroPresentationAction=null}})};
   overlay.querySelector('#bItems').onclick=()=>{const box=overlay.querySelector('#bSubmenu'),items=battleConsumableGroups();box.innerHTML=items.length?items.map((row,i)=>`<button class="battle-choice-v2" data-item-index="${i}"><strong>${row.item?.icon||'🧪'} ${row.name}　×${row.count}</strong><span>${row.item?.description||'戰鬥中使用後消耗 1 個。'}</span></button>`).join(''):'<div class="card small">沒有可用的戰鬥消耗品。</div>';box.classList.add('show');box.querySelectorAll('[data-item-index]').forEach(b=>b.onclick=()=>{const row=items[Number(b.dataset.itemIndex)];if(!row)return;box.classList.remove('show');engine.playerAction({kind:'item',name:row.name,icon:row.item?.icon||'🧪',stackKey:row.stackKey,effectType:row.item?.effectType||'',effectValue:Number(row.item?.effectValue)||0,effectTurns:Number(row.item?.effectTurns)||0},presenter)})};
   overlay.querySelector('#bTargetStrip').onclick=e=>{const b=e.target.closest('[data-target]');if(b)engine.selectTarget(b.dataset.target)};overlay.querySelector('#bCancel').onclick=closeBattle;
 }
-export function closeBattle(){overlay?.remove();overlay=null;engine=null;settlement=null;onClose?.();onClose=null}
+export function closeBattle(){overlay?.remove();overlay=null;engine=null;settlement=null;heroPresentationAction=null;onClose?.();onClose=null}
