@@ -5,7 +5,7 @@ let loading=null;
 let normalizedSource=null;
 let normalizedDatabase=null;
 
-const SCRIPT_TIMEOUT_MS=6000;
+const FETCH_TIMEOUT_MS=15000;
 
 const LEGACY_MONSTER_SKILL_OVERRIDES=Object.freeze({
   // 1.0 Runtime 對這兩個護盾固定套用 35% 減傷，但舊 skill-database 缺少宣告欄位。
@@ -48,39 +48,41 @@ export function currentContentDatabase(){
   return normalizeContentDatabase(globalThis.STUDYRPG_SKILL_DATABASE||null);
 }
 
-function loadLegacySkillDatabase(){
-  if(globalThis.STUDYRPG_SKILL_DATABASE)return Promise.resolve(globalThis.STUDYRPG_SKILL_DATABASE);
-  if(typeof document==='undefined')return Promise.resolve(null);
+function parseSkillDatabaseSource(text){
+  const source=String(text||'');
+  const assignAt=source.indexOf('=');
+  const firstBrace=source.indexOf('{',assignAt);
+  const lastBrace=source.lastIndexOf('}');
+  if(assignAt<0||firstBrace<0||lastBrace<=firstBrace)throw new Error('Skill DB 格式無法辨識');
+  const parsed=JSON.parse(source.slice(firstBrace,lastBrace+1));
+  if(!Array.isArray(parsed?.beginner)||!parsed?.monsterSkills||!parsed?.monsterAI){
+    throw new Error('Skill DB 結構不完整');
+  }
+  return parsed;
+}
 
-  return new Promise(resolve=>{
-    const selector='script[data-studyrpg-content="skill-database"]';
-    const old=document.querySelector(selector);
+async function fetchSkillDatabase(){
+  if(globalThis.STUDYRPG_SKILL_DATABASE)return globalThis.STUDYRPG_SKILL_DATABASE;
+  if(typeof fetch!=='function')throw new Error('目前環境不支援 Skill DB 載入');
 
-    // 舊節點若已觸發過 load/error，再掛 listener 會永久等待。
-    // Battle 開啟時寧可移除舊節點重新載入，也不能讓 Promise 卡死。
-    if(old)old.remove();
+  const controller=typeof AbortController!=='undefined'?new AbortController():null;
+  const timer=controller?setTimeout(()=>controller.abort(),FETCH_TIMEOUT_MS):null;
 
-    const script=document.createElement('script');
-    script.dataset.studyrpgContent='skill-database';
-    script.src=APP_CONFIG.assetBase+'skill-database.js';
-
-    let settled=false;
-    const finish=()=>{
-      if(settled)return;
-      settled=true;
-      clearTimeout(timer);
-      resolve(globalThis.STUDYRPG_SKILL_DATABASE||null);
-    };
-
-    script.onload=finish;
-    script.onerror=finish;
-    const timer=setTimeout(()=>{
-      script.remove();
-      finish();
-    },SCRIPT_TIMEOUT_MS);
-
-    document.head.appendChild(script);
-  });
+  try{
+    const response=await fetch(APP_CONFIG.assetBase+'skill-database.js',{
+      cache:'no-store',
+      signal:controller?.signal
+    });
+    if(!response.ok)throw new Error(`Skill DB HTTP ${response.status}`);
+    const parsed=parseSkillDatabaseSource(await response.text());
+    globalThis.STUDYRPG_SKILL_DATABASE=parsed;
+    return parsed;
+  }catch(error){
+    if(error?.name==='AbortError')throw new Error('Skill DB 載入逾時');
+    throw error;
+  }finally{
+    if(timer)clearTimeout(timer);
+  }
 }
 
 export async function ensureContentDatabase(){
@@ -88,8 +90,12 @@ export async function ensureContentDatabase(){
   if(ready)return ready;
   if(loading)return loading;
 
-  loading=loadLegacySkillDatabase()
-    .then(()=>currentContentDatabase())
+  loading=fetchSkillDatabase()
+    .then(source=>{
+      const db=normalizeContentDatabase(source);
+      if(!db)throw new Error('Skill DB 載入失敗');
+      return db;
+    })
     .finally(()=>{loading=null});
 
   return loading;
