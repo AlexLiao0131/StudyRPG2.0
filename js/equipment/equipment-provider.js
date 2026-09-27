@@ -2,6 +2,7 @@ import { APP_CONFIG } from '../data/app-config.js';
 import { EQUIPMENT_SKILL_AFFIXES } from './equipment-skill-affix-database.js';
 
 let loading=null;
+const SCRIPT_TIMEOUT_MS=6000;
 
 function globals(){
   const legacy=globalThis.STUDYRPG_AFFIX_DATABASE?.affixes||null;
@@ -25,19 +26,33 @@ export function canonicalEquipmentAffix(affix={}){
 function loadScript(path,key){
   if(globalThis[key])return Promise.resolve(globalThis[key]);
   if(typeof document==='undefined')return Promise.resolve(null);
+
   return new Promise(resolve=>{
     const selector=`script[data-studyrpg-content="${key}"]`;
     const old=document.querySelector(selector);
-    if(old){
-      old.addEventListener('load',()=>resolve(globalThis[key]||null),{once:true});
-      old.addEventListener('error',()=>resolve(null),{once:true});
-      return;
-    }
+
+    // 舊 script 可能早已 load/error；此時再等事件會讓 openBattle 永久卡住。
+    if(old)old.remove();
+
     const script=document.createElement('script');
     script.dataset.studyrpgContent=key;
     script.src=APP_CONFIG.assetBase+path;
-    script.onload=()=>resolve(globalThis[key]||null);
-    script.onerror=()=>resolve(null);
+
+    let settled=false;
+    const finish=()=>{
+      if(settled)return;
+      settled=true;
+      clearTimeout(timer);
+      resolve(globalThis[key]||null);
+    };
+
+    script.onload=finish;
+    script.onerror=finish;
+    const timer=setTimeout(()=>{
+      script.remove();
+      finish();
+    },SCRIPT_TIMEOUT_MS);
+
     document.head.appendChild(script);
   });
 }
@@ -46,9 +61,11 @@ export async function ensureEquipmentContent(){
   const ready=currentEquipmentContent();
   if(ready)return ready;
   if(loading)return loading;
+
   loading=Promise.all([
     loadScript('affix-database.js','STUDYRPG_AFFIX_DATABASE'),
     loadScript('tools/Equipment/equipment-database.js','STUDYRPG_EQUIPMENT_DATABASE')
   ]).then(()=>currentEquipmentContent()).finally(()=>{loading=null});
+
   return loading;
 }
