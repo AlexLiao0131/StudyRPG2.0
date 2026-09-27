@@ -23,9 +23,12 @@ function renderVisualAttachments(s){const a=arena();if(!a)return;renderBattleSta
 function renderResource(s){const view=formalResourceView(s),bar=overlay.querySelector('#bHeroEnergy'),text=overlay.querySelector('#bHeroEnergyText');bar.style.width=pct(view.value,view.max)+'%';const h=s.formal?.hound,extra=h?.alive?`　🐕 ${Math.round(h.hp)}/${h.maxHp}`:'';text.textContent=`${view.label} ${Math.round(view.value)} / ${Math.round(view.max)}${view.secondary?`　${view.secondary.label} ${Math.round(view.secondary.value)} / ${Math.round(view.secondary.max)}`:''}${s.formal?.combo?`　🔴 ${s.formal.combo}/3`:''}${extra}`}
 function resultHTML(s){
   const win=s.result==='win',reward=settlement?.reward||{},drop=settlement?.drop,unlock=settlement?.unlocked?'<div class="small good">🏆 第一學期主線完成：第21週 Boss 回顧與寒暑假無盡之塔已解鎖。</div>':'';
+  const rating=Math.max(0,Math.min(3,Number(settlement?.rating)||0));
+  const showRating=win&&!['replay','tower'].includes(engine?.eventType);
+  const stars=showRating?`<div class="rating-stars">${'⭐'.repeat(rating)}</div>`:'';
   const gain=win?`<div>⭐ EXP +${Number(reward.exp)||0}　💰 +${Number(reward.gold)||0} G</div>`:'';
-  const loot=win&&drop?`<div>🎁 ${drop.label||drop.itemData?.name||'裝備掉落'}</div>`:win?'<div class="small">本次沒有裝備掉落。</div>':'';
-  return `<div class="battle-result"><div class="battle-result-icon">${win?'🏆':'💀'}</div><h2>${win?'勝利！':'戰敗！'}</h2>${gain}${loot}${unlock}<button id="bClose" class="action-button ${win?'primary':''}">返回</button></div>`;
+  const loot=win&&drop?`<div>🎁 ${drop.label||drop.itemData?.name||'額外掉落'}</div>`:win?'<div class="small">本次沒有額外掉落。</div>':'';
+  return `<div class="battle-result"><div class="battle-result-icon">${win?'🏆':'💀'}</div><h2>${win?'勝利！':'戰敗！'}</h2>${stars}${gain}${loot}${unlock}<button id="bClose" class="action-button ${win?'primary':''}">返回</button></div>`;
 }
 function renderState(s){
   if(!overlay||!s)return;const target=s.enemies.find(x=>x.uid===s.selectedEnemyUid)||s.enemies.find(x=>x.hp>0),hpH=pct(s.heroHp,s.hero.maxHp),hpE=pct(target?.hp,target?.maxHp);
@@ -53,19 +56,9 @@ async function presenter(event,s){
   if(!played)await fallbackAttackAnimation(event,actor,target);else if(event.result?.damage>0)target.animate([{filter:'brightness(1)'},{filter:'brightness(2.2)'},{filter:'brightness(1)'}],{duration:220});
 }
 function settle(result){if(settled||!engine?.state)return;settled=true;settlement=settleBattle(engine,result)}
-function submenu(){
-  return overlay?.querySelector('#bSubmenu')||null;
-}
-function hideSubmenu(){
-  const box=submenu();if(!box)return;
-  box.classList.remove('show');box.innerHTML='';
-}
-function showSubmenu(html){
-  const box=submenu();if(!box)return null;
-  box.innerHTML=html;box.classList.add('show');
-  requestAnimationFrame(()=>box.scrollIntoView({block:'nearest',behavior:'smooth'}));
-  return box;
-}
+function submenu(){return overlay?.querySelector('#bSubmenu')||null}
+function hideSubmenu(){const box=submenu();if(!box)return;box.classList.remove('show');box.innerHTML=''}
+function showSubmenu(html){const box=submenu();if(!box)return null;box.innerHTML=html;box.classList.add('show');requestAnimationFrame(()=>box.scrollIntoView({block:'nearest',behavior:'smooth'}));return box}
 export async function openBattle(battleEngine,closeCallback){
   engine=battleEngine;onClose=closeCallback;settled=false;settlement=null;heroPresentationAction=null;const[loadedSkills,,equipmentContent]=await Promise.all([availableBattleSkills(),engine.prepare(),ensureEquipmentContent(),ensureVisualContent()]);
   const skills=Array.isArray(loadedSkills)?loadedSkills:[];
