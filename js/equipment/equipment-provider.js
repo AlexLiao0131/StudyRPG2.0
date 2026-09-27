@@ -1,8 +1,8 @@
 import { APP_CONFIG } from '../data/app-config.js';
+import { loadLegacyDatabaseScript } from '../data/legacy-script-loader.js';
 import { EQUIPMENT_SKILL_AFFIXES } from './equipment-skill-affix-database.js';
 
 let loading=null;
-const SCRIPT_TIMEOUT_MS=6000;
 
 function globals(){
   const legacy=globalThis.STUDYRPG_AFFIX_DATABASE?.affixes||null;
@@ -23,37 +23,12 @@ export function canonicalEquipmentAffix(affix={}){
   return def?{...affix,...def}:affix;
 }
 
-function loadScript(path,key){
-  if(globalThis[key])return Promise.resolve(globalThis[key]);
-  if(typeof document==='undefined')return Promise.resolve(null);
-
-  return new Promise(resolve=>{
-    const selector=`script[data-studyrpg-content="${key}"]`;
-    const old=document.querySelector(selector);
-
-    // 舊 script 可能早已 load/error；此時再等事件會讓 openBattle 永久卡住。
-    if(old)old.remove();
-
-    const script=document.createElement('script');
-    script.dataset.studyrpgContent=key;
-    script.src=APP_CONFIG.assetBase+path;
-
-    let settled=false;
-    const finish=()=>{
-      if(settled)return;
-      settled=true;
-      clearTimeout(timer);
-      resolve(globalThis[key]||null);
-    };
-
-    script.onload=finish;
-    script.onerror=finish;
-    const timer=setTimeout(()=>{
-      script.remove();
-      finish();
-    },SCRIPT_TIMEOUT_MS);
-
-    document.head.appendChild(script);
+async function loadDatabase(path,key,label){
+  if(globalThis[key])return globalThis[key];
+  return loadLegacyDatabaseScript({
+    url:APP_CONFIG.assetBase+path,
+    globalKey:key,
+    label
   });
 }
 
@@ -63,9 +38,13 @@ export async function ensureEquipmentContent(){
   if(loading)return loading;
 
   loading=Promise.all([
-    loadScript('affix-database.js','STUDYRPG_AFFIX_DATABASE'),
-    loadScript('tools/Equipment/equipment-database.js','STUDYRPG_EQUIPMENT_DATABASE')
-  ]).then(()=>currentEquipmentContent()).finally(()=>{loading=null});
+    loadDatabase('affix-database.js','STUDYRPG_AFFIX_DATABASE','Affix DB'),
+    loadDatabase('tools/Equipment/equipment-database.js','STUDYRPG_EQUIPMENT_DATABASE','Equipment DB')
+  ]).then(()=>{
+    const content=currentEquipmentContent();
+    if(!content)throw new Error('Equipment DB 無法初始化');
+    return content;
+  }).finally(()=>{loading=null});
 
   return loading;
 }
