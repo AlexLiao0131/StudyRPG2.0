@@ -1,10 +1,13 @@
 import { addStatus, effectiveBattleValue, totalElementRes } from './battle-math.js';
+import { canonicalEquipmentAffix } from '../equipment/equipment-provider.js';
 
 const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
+const canonical=a=>canonicalEquipmentAffix(clone(a)||{});
 
 export function initializeEquipmentRuntime(engine){
   const s=engine?.state;if(!s)return null;
-  const affixes=(engine.equipmentAffixes||[]).map(clone);s.equipmentAffixes=affixes;s.equipmentRuntime={deathPreventUsed:false};s.equipmentCompanions=[];
+  // 裝備 instance 只保存取得時快照；戰鬥啟動時依 affix id 回到正式 Affix DB 取得規則。
+  const affixes=(engine.equipmentAffixes||[]).map(canonical);s.equipmentAffixes=affixes;s.equipmentRuntime={deathPreventUsed:false};s.equipmentCompanions=[];
   for(const a of affixes){
     if(a.kind!=='stat'&&!s.hero.statuses.some(st=>st.type===`equipment_affix_${a.id}`))addStatus(s.hero,{type:`equipment_affix_${a.id}`,name:`💎 ${a.name||a.id}`,turns:999,effectType:'buff',mods:{}});
     if(a.effect==='opening_guard'&&!s.hero.statuses.some(st=>st.type==='equipment_opening_guard'))addStatus(s.hero,{type:'equipment_opening_guard',name:'🛡️ 王者庇護（前3回合）',turns:999,effectType:'buff',mods:{}});
@@ -15,7 +18,6 @@ export function initializeEquipmentRuntime(engine){
   for(const c of s.equipmentCompanions)s.logs.push(`${c.icon} ${c.name}由裝備詞綴啟動，會在勇者造成傷害後追擊。`);
   return s.equipmentRuntime;
 }
-
 
 export function syncEquipmentRoundStatuses(engine){
   const s=engine?.state;if(!s)return;const hasGuard=(s.equipmentAffixes||[]).some(a=>a.effect==='opening_guard');
@@ -29,7 +31,7 @@ export function mitigateEquipmentIncomingDamage(engine,result){
 
 export function applyEquipmentActionModifiers(engine,action){
   if(!action||!engine?.state)return action;const cls=engine.heroSource?.heroClass||engine.state.formal?.cls||'';let multiplier=1;
-  for(const a of engine.state.equipmentAffixes||[]){if(a.kind==='skill_boost'&&a.heroClass===cls&&(a.skillIds||[]).includes(action.id))multiplier+=Number(a.multiplier)||0}
+  for(const raw of engine.state.equipmentAffixes||[]){const a=canonical(raw);if(a.kind==='skill_boost'&&a.heroClass===cls&&(a.skillIds||[]).includes(action.id))multiplier+=Number(a.multiplier)||0}
   if(multiplier===1)return action;const next=clone(action);
   if(Number(next.multiplier))next.multiplier*=multiplier;
   if(Array.isArray(next.effects))for(const e of next.effects)if(e?.type==='damage'&&Number(e.multiplier))e.multiplier*=multiplier;

@@ -1,4 +1,5 @@
 import { addStatus } from './battle-math.js';
+import { NGPLUS_MONSTER_RULES } from './monster-database.js';
 
 export const MULTI_ENEMY_RULES=Object.freeze({maxEnemies:4,maxSummons:3,removeSummonsWhenBossDies:true});
 
@@ -51,7 +52,55 @@ function shuffledUnique(values=[]){
   return result;
 }
 
+function ngCycle(engine){return Math.max(1,Number(engine?.campaignProgress?.cycle)||1)}
+function ngHash(monsterId,seed=0){return Math.abs(String(monsterId||'').split('').reduce((n,c)=>n+c.charCodeAt(0),Number(seed)||0))}
+function ngAffix(id){return NGPLUS_MONSTER_RULES.affixes?.[id]||null}
+
+function applyNgPlusMonsterLoadout(engine,unit){
+  if(!unit||unit.isSummon)return null;
+  const cycle=ngCycle(engine);if(cycle<=1)return null;
+  const skills=NGPLUS_MONSTER_RULES.skillPool||[],affixes=Object.values(NGPLUS_MONSTER_RULES.affixes||{});
+  const skillId=skills.length?skills[ngHash(unit.monsterId,cycle)%skills.length]:'';
+  const count=Math.min(Math.max(0,cycle-1),Math.max(0,Number(NGPLUS_MONSTER_RULES.maxAffixes)||0),affixes.length),chosen=[];
+  for(let i=0;i<count;i++){
+    const def=affixes[(i+cycle+String(unit.monsterId||'').length)%affixes.length];
+    if(def&&!chosen.some(x=>x.id===def.id))chosen.push(def);
+  }
+  for(const def of chosen){
+    for(const [stat,mult] of Object.entries(def.statMultipliers||{})){
+      if(Number.isFinite(Number(unit[stat])))unit[stat]=Number(unit[stat])*Number(mult);
+    }
+  }
+  unit.ngPlus={cycle,skillId,affixIds:chosen.map(x=>x.id)};
+  if(chosen.length)unit.name+=`【${chosen.map(x=>x.name).join('・')}】`;
+  if(chosen.length||skillId)engine.log(`♻️ 二週目強化：${unit.name}${skillId?`｜額外技能 ${engine.skillFor(skillId)?.name||skillId}`:''}`);
+  return unit.ngPlus;
+}
+
+export function ngPlusSkillForTurn(engine,unit){
+  const id=unit?.ngPlus?.skillId;if(!id)return null;
+  if(Math.random()>=Number(NGPLUS_MONSTER_RULES.bonusSkillChance||0))return null;
+  return engine?.skillFor?.(id)||null;
+}
+
+function applyNgPlusTurnStart(engine,unit){
+  if(!unit?.ngPlus?.affixIds?.length||unit.hp<=0)return false;
+  let changed=false;
+  for(const id of unit.ngPlus.affixIds){
+    const def=ngAffix(id),pct=Number(def?.turnStart?.healMaxHp)||0;
+    if(pct>0&&unit.hp<unit.maxHp){
+      const heal=Math.min(unit.maxHp-unit.hp,Math.max(1,Math.round(unit.maxHp*pct)));
+      unit.hp+=heal;changed=true;engine.log(`♻️ ${unit.name}的${def.name}詞綴恢復 ${heal} HP。`);
+    }
+  }
+  if(changed)engine.emit({type:'enemy-state',unitUid:unit.uid});
+  return changed;
+}
+
 export function applyBattleStartMechanics(engine,unit){
+  // 二週目怪物只掛 skill id / affix id；技能與詞綴定義由正式資料庫解析。
+  applyNgPlusMonsterLoadout(engine,unit);
+
   const id=engine.aiFor(unit.monsterId)?.battleStartMechanic;
   const mechanic=BATTLE_START_MECHANICS[id];
   if(!mechanic)return;
@@ -123,6 +172,7 @@ export function afterEnemyDamaged(engine,unit){
 }
 
 export function beforeEnemyStatusTick(engine,unit){
+  applyNgPlusTurnStart(engine,unit);
   const ai=engine.aiFor(unit.monsterId);
   if(ai.passive?.healMaxHpPerTurn&&unit.hp>0&&unit.hp<unit.maxHp){
     const heal=Math.max(1,Math.round(unit.maxHp*Number(ai.passive.healMaxHpPerTurn)));

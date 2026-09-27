@@ -96,4 +96,18 @@ export const MONSTERS=Object.freeze({
   final_necromancer:{id:'final_necromancer',name:"最終死靈法師",family:'generic',boss:true,finalBoss:true,mirrorHero:false},
   grim_reaper:{id:'grim_reaper',name:"死神",family:'undead',boss:true,finalBoss:true,mirrorHero:false},
 });
+
+// 二週目只保存「掛哪些技能 ID / 詞綴 ID」與詞綴資料；技能本體仍由 skill-database.js 提供。
+export const NGPLUS_MONSTER_RULES=Object.freeze({
+  bonusSkillChance:.25,
+  maxAffixes:3,
+  skillPool:Object.freeze(['goblin_heavy_slash','spider_poison_fang','goblin_guard','shadow_arrow','chain_lightning']),
+  affixes:Object.freeze({
+    ferocious:Object.freeze({id:'ferocious',name:'狂暴',statMultipliers:Object.freeze({attack:1.10,magicAttack:1.10})}),
+    armored:Object.freeze({id:'armored',name:'裝甲',statMultipliers:Object.freeze({defense:1.12,magicDefense:1.12})}),
+    swift:Object.freeze({id:'swift',name:'迅捷',statMultipliers:Object.freeze({speed:1.10})}),
+    regeneration:Object.freeze({id:'regeneration',name:'再生',turnStart:Object.freeze({healMaxHp:.02})})
+  })
+});
+
 export function monsterDef(id){return MONSTERS[id]||{id:String(id||'unknown'),name:String(id||'未知怪物').replaceAll('_',' '),family:'generic',boss:false,finalBoss:false,mirrorHero:false}}

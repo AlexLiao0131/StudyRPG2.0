@@ -1,6 +1,7 @@
 import { STATUS_DEFS } from './battle-config.js';
 import { phaseEntryRule, previousPhaseMonsterId } from './phase-database.js';
 import { lateSkillEntries, lateSkillUsable } from './late-monster-runtime.js';
+import { ngPlusSkillForTurn } from './monster-mechanics.js';
 
 export function monsterAI(db,monsterId){
   const direct=db?.monsterAI?.[monsterId]||{};
@@ -55,6 +56,10 @@ export function skillUsable(engine,unit,entry,skill){
 export function chooseEnemySkill(engine,unit){
   const db=engine.content||{},ai=monsterAI(db,unit.monsterId);
   if(unit.forceBasicOnly)return {id:'summon_basic',name:'攻擊',kind:'physical',target:'single',multiplier:.8};
+
+  // 沿用 1.0：二週目額外技能先擲 25%，技能本體仍由 monsterSkills DB 解析。
+  const ngPlus=ngPlusSkillForTurn(engine,unit);
+  if(ngPlus&&skillUsable(engine,unit,{id:ngPlus.id},ngPlus))return ngPlus;
 
   if(unit.chargedSkill){
     const charged=monsterSkill(db,unit.chargedSkill);
