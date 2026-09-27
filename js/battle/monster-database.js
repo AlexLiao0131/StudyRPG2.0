@@ -5,7 +5,7 @@ export const MONSTERS=Object.freeze({
   slime_lightning:{id:'slime_lightning',name:"雷史萊姆",family:'slime',boss:false,finalBoss:false,mirrorHero:false},
   slime_king:{id:'slime_king',name:"大史萊姆",family:'slime',boss:true,finalBoss:false,mirrorHero:false},
   goblin_slave:{id:'goblin_slave',name:"哥布林奴隸",family:'goblin',boss:false,finalBoss:false,mirrorHero:false},
-  goblin_soldier:{id:'goblin_soldier',name:"哥布林士兵",family:'goblin',boss:false,finalBoss:false,mirrorHero:false},
+  goblin_soldier:{id:'goblin_soldier',name:"哥布林士兵",family:'goblin',boss:false,finalBoss:false,mirrorHero:false,weekSkillEntries:{11:[{id:'goblin_slash',weight:3},{id:'goblin_fierce_thrust',weight:2}]}},
   goblin_shaman:{id:'goblin_shaman',name:"哥布林巫醫",family:'goblin',boss:false,finalBoss:false,mirrorHero:false},
   goblin_general:{id:'goblin_general',name:"哥布林將軍",family:'goblin',boss:false,finalBoss:false,mirrorHero:false},
   goblin_king:{id:'goblin_king',name:"哥布林王",family:'goblin',boss:true,finalBoss:false,mirrorHero:false},
@@ -15,8 +15,8 @@ export const MONSTERS=Object.freeze({
   treant:{id:'treant',name:"樹妖",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
   dark_elf:{id:'dark_elf',name:"黑暗精靈",family:'generic',boss:true,finalBoss:false,mirrorHero:false},
   orc_slave:{id:'orc_slave',name:"獸人農奴",family:'orc',boss:false,finalBoss:false,mirrorHero:false},
-  orc_warrior:{id:'orc_warrior',name:"獸人戰士",family:'orc',boss:false,finalBoss:false,mirrorHero:false},
-  orc_shaman:{id:'orc_shaman',name:"獸人巫醫",family:'orc',boss:false,finalBoss:false,mirrorHero:false},
+  orc_warrior:{id:'orc_warrior',name:"獸人戰士",family:'orc',boss:false,finalBoss:false,mirrorHero:false,weekSkillEntries:{11:[{id:'orc_swing',weight:3},{id:'orc_charge',weight:1}]}},
+  orc_shaman:{id:'orc_shaman',name:"獸人巫醫",family:'orc',boss:false,finalBoss:false,mirrorHero:false,weekSkillEntries:{11:[{id:'staff_hit',weight:2},{id:'chain_lightning',weight:3},{id:'orc_soul_heal',weight:5,condition:'low_hp',threshold:.40}]}},
   orc_champion:{id:'orc_champion',name:"獸人冠軍劍士",family:'orc',boss:false,finalBoss:false,mirrorHero:false},
   orc_general:{id:'orc_general',name:"獸人將軍",family:'orc',boss:true,finalBoss:false,mirrorHero:false},
   skeleton:{id:'skeleton',name:"骷髏",family:'undead',boss:false,finalBoss:false,mirrorHero:false},
@@ -77,23 +77,26 @@ export const MONSTERS=Object.freeze({
   pigman:{id:'pigman',name:"豬頭人",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
   pigman_warrior:{id:'pigman_warrior',name:"豬頭人戰士",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
   centaur:{id:'centaur',name:"半人馬",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
-  centaur_knight:{id:'centaur_knight',name:"半人馬騎士",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
-  cyclops:{id:'cyclops',name:"獨眼巨人",family:'generic',boss:true,finalBoss:false,mirrorHero:false},
+  centaur_knight:{id:'centaur_knight',name:"半人馬騎士",family:'generic',boss:false,finalBoss:false,mirrorHero:false,interruptibleChargeSkillId:'centaur_knight_charge'},
+  cyclops:{id:'cyclops',name:"獨眼巨人",family:'generic',boss:true,finalBoss:false,mirrorHero:false,interruptibleChargeSkillId:'cyclops_devastating_swing'},
   harpy:{id:'harpy',name:"鷹身女妖",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
   flying_goblin:{id:'flying_goblin',name:"飛行哥布林",family:'goblin',boss:false,finalBoss:false,mirrorHero:false},
   wyvern:{id:'wyvern',name:"翼龍",family:'dragon',boss:false,finalBoss:false,mirrorHero:false},
   sky_pirate:{id:'sky_pirate',name:"天空海盜",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
-  sky_pirate_captain:{id:'sky_pirate_captain',name:"天空海盜船長",family:'generic',boss:true,finalBoss:false,mirrorHero:false},
+  sky_pirate_captain:{id:'sky_pirate_captain',name:"天空海盜船長",family:'generic',boss:true,finalBoss:false,mirrorHero:false,interruptibleChargeSkillId:'captain_airship_cannon'},
   magic_armor:{id:'magic_armor',name:"魔法鎧甲",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
   stone_gargoyle:{id:'stone_gargoyle',name:"石像翼魔",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
   sky_city_mage:{id:'sky_city_mage',name:"天空城魔導士",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
-  pegasus_knight:{id:'pegasus_knight',name:"天馬騎士",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
-  sky_colossus:{id:'sky_colossus',name:"天空巨像",family:'generic',boss:true,finalBoss:false,mirrorHero:false},
+  pegasus_knight:{id:'pegasus_knight',name:"天馬騎士",family:'generic',boss:false,finalBoss:false,mirrorHero:false,interruptibleChargeSkillId:'pegasus_sky_charge'},
+  sky_colossus:{id:'sky_colossus',name:"天空巨像",family:'generic',boss:true,finalBoss:false,mirrorHero:false,interruptibleChargeSkillId:'colossus_destruction_cannon'},
   fire_lizard:{id:'fire_lizard',name:"火焰蜥蜴",family:'lizard',boss:false,finalBoss:false,mirrorHero:false},
   lava_giant:{id:'lava_giant',name:"熔岩巨人",family:'generic',boss:false,finalBoss:false,mirrorHero:false},
-  demon_dragon_phase1:{id:'demon_dragon_phase1',name:"魔龍・第一階段",family:'dragon',boss:true,finalBoss:false,mirrorHero:false},
-  demon_dragon_phase2:{id:'demon_dragon_phase2',name:"魔龍・第二階段",family:'dragon',boss:true,finalBoss:false,mirrorHero:false},
+  demon_dragon_phase1:{id:'demon_dragon_phase1',name:"魔龍・第一階段",family:'dragon',boss:true,finalBoss:false,mirrorHero:false,interruptibleChargeSkillId:'dragon1_breath'},
+  demon_dragon_phase2:{id:'demon_dragon_phase2',name:"魔龍・第二階段",family:'dragon',boss:true,finalBoss:false,mirrorHero:false,interruptibleChargeSkillId:'dragon2_meteor_breath'},
   final_necromancer:{id:'final_necromancer',name:"最終死靈法師",family:'generic',boss:true,finalBoss:true,mirrorHero:false},
+  kraken_tentacle_left:{id:'kraken_tentacle_left',name:'克拉肯左觸手',family:'sea',boss:false,finalBoss:false,mirrorHero:false,lateSupplemental:true},
+  kraken_tentacle_right:{id:'kraken_tentacle_right',name:'克拉肯右觸手',family:'sea',boss:false,finalBoss:false,mirrorHero:false,lateSupplemental:true},
+  skeleton_dragon:{id:'skeleton_dragon',name:'骷髏巨龍',family:'undead_dragon',boss:false,finalBoss:false,mirrorHero:false,lateSupplemental:true},
   grim_reaper:{id:'grim_reaper',name:"死神",family:'undead',boss:true,finalBoss:true,mirrorHero:false},
 });
 
@@ -111,3 +114,11 @@ export const NGPLUS_MONSTER_RULES=Object.freeze({
 });
 
 export function monsterDef(id){return MONSTERS[id]||{id:String(id||'unknown'),name:String(id||'未知怪物').replaceAll('_',' '),family:'generic',boss:false,finalBoss:false,mirrorHero:false}}
+
+export function monsterWeekSkillEntries(id,week,fallback=[]){
+  const rows=monsterDef(id)?.weekSkillEntries?.[Number(week)];
+  return Array.isArray(rows)?rows:fallback;
+}
+export function monsterInterruptibleChargeSkill(id){
+  return String(monsterDef(id)?.interruptibleChargeSkillId||'');
+}

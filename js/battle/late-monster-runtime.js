@@ -1,40 +1,21 @@
 import { addStatus, effectMod } from './battle-math.js';
+import { monsterDef, monsterWeekSkillEntries, monsterInterruptibleChargeSkill } from './monster-database.js';
 
-const HARVEST_STATUSES=Object.freeze(['disease','curse','fear','swamp_corruption']);
-const INTERRUPTIBLE_CHARGES=Object.freeze({
-  centaur_knight:'centaur_knight_charge',
-  cyclops:'cyclops_devastating_swing',
-  sky_pirate_captain:'captain_airship_cannon',
-  pegasus_knight:'pegasus_sky_charge',
-  sky_colossus:'colossus_destruction_cannon',
-  demon_dragon_phase1:'dragon1_breath',
-  demon_dragon_phase2:'dragon2_meteor_breath'
-});
-
-const SUPPLEMENTAL_MONSTERS=Object.freeze({
-  kraken_tentacle_left:{id:'kraken_tentacle_left',name:'克拉肯左觸手',family:'sea',boss:false,finalBoss:false,mirrorHero:false},
-  kraken_tentacle_right:{id:'kraken_tentacle_right',name:'克拉肯右觸手',family:'sea',boss:false,finalBoss:false,mirrorHero:false},
-  skeleton_dragon:{id:'skeleton_dragon',name:'骷髏巨龍',family:'undead_dragon',boss:false,finalBoss:false,mirrorHero:false}
-});
-
-const WEEK11_SKILL_OVERRIDES=Object.freeze({
-  goblin_soldier:Object.freeze([{id:'goblin_slash',weight:3},{id:'goblin_fierce_thrust',weight:2}]),
-  orc_warrior:Object.freeze([{id:'orc_swing',weight:3},{id:'orc_charge',weight:1}]),
-  orc_shaman:Object.freeze([{id:'staff_hit',weight:2},{id:'chain_lightning',weight:3},{id:'orc_soul_heal',weight:5,condition:'low_hp',threshold:.40}])
-});
-
-export function lateMonsterDef(id){return SUPPLEMENTAL_MONSTERS[id]||null}
+export function lateMonsterDef(id){
+  const def=monsterDef(id);
+  return def?.lateSupplemental===true?def:null;
+}
 
 export function lateSkillEntries(engine,unit,entries=[]){
-  if(Number(engine?.week)!==11)return entries;
-  return WEEK11_SKILL_OVERRIDES[unit?.monsterId]||entries;
+  return monsterWeekSkillEntries(unit?.monsterId,engine?.week,entries);
 }
 
 function heroHas(engine,type){
   return !!engine?.state?.hero?.statuses?.some(s=>s.type===type&&Number(s.turns)>0);
 }
-function activeHarvest(engine){
-  return HARVEST_STATUSES.filter(type=>heroHas(engine,type));
+function activeHarvest(engine,skill=engine?.skillFor?.('reaper_soul_harvest')){
+  const types=Array.isArray(skill?.harvestStatuses)?skill.harvestStatuses:[];
+  return types.filter(type=>heroHas(engine,type));
 }
 function ownedLiving(engine,owner,predicate=()=>true){
   return engine.livingEnemies().filter(x=>x.isSummon&&x.summonedBy===owner?.uid&&predicate(x));
@@ -58,7 +39,7 @@ export function lateSkillUsable(engine,unit,entry,skill){
   const id=skill.id;
 
   if(skill.requiresHeroStatus&&!heroHas(engine,skill.requiresHeroStatus))return false;
-  if(skill.requiresAnyHarvestStatus&&!activeHarvest(engine).length)return false;
+  if(skill.requiresAnyHarvestStatus&&!activeHarvest(engine,skill).length)return false;
 
   if(id==='bandit_smoke'&&heroHas(engine,'smoke_blind'))return false;
   if(id==='machine_arm_bind'&&heroHas(engine,'machine_bind'))return false;
@@ -265,7 +246,7 @@ export function afterLateStatusTick(engine,unit,isHero,{skip=false,hadControl=fa
   if(isHero&&hadFear&&Math.random()<.35){
     extraSkip=true;engine.log(`😱 ${unit.name}受到恐懼影響，本回合無法行動。`);
   }
-  if(!isHero&&skip&&hadControl&&unit?.chargedSkill&&INTERRUPTIBLE_CHARGES[unit.monsterId]===unit.chargedSkill){
+  if(!isHero&&skip&&hadControl&&unit?.chargedSkill&&monsterInterruptibleChargeSkill(unit.monsterId)===unit.chargedSkill){
     const old=unit.chargedSkill;unit.chargedSkill=null;
     removeStatus(unit,'pegasus_takeoff');
     engine.log(`💥 ${unit.name}受到控制，「${engine.skillFor(old)?.name||'蓄力攻擊'}」被打斷。`);
@@ -328,15 +309,16 @@ export async function afterLateHeroHit(engine,target,action,result,presenter){
     if(stance){
       target.statuses=target.statuses.filter(s=>s!==stance);
       engine.log(`🪆 ${target.name}發動反擊姿態。`);
-      await engine.executeEnemyDamage(target,{id:'doll_counter',name:'人偶反擊',kind:'physical',target:'single',multiplier:.60,bypassHound:true},presenter);
+      const counter=engine.skillFor('doll_counter');
+      if(counter)await engine.executeEnemyDamage(target,counter,presenter);
     }
   }
 }
 
 export function afterLateChargeStarted(engine,unit,skill){
-  if(skill?.id==='pegasus_takeoff'){
-    temporary(unit,'pegasus_takeoff','🪽 飛馬升空',1,{evade:.25});
-    engine.log('🪽 飛馬騎士升空：蓄力期間閃避率提高25%。');
+  if(skill?.id==='pegasus_takeoff'&&Number(skill.chargeEvadeBonus)>0){
+    temporary(unit,'pegasus_takeoff','🪽 飛馬升空',1,{evade:Number(skill.chargeEvadeBonus)});
+    engine.log(`🪽 飛馬騎士升空：蓄力期間閃避率提高${Math.round(Number(skill.chargeEvadeBonus)*100)}%。`);
   }
 }
 
@@ -353,57 +335,63 @@ export async function executeLateEnemySkill(engine,unit,skill,presenter){
   if(skill.id==='pillar_attack_order'){
     const dolls=ownedLiving(engine,unit,x=>x.commandDoll);
     engine.log(`⚔️ 攻擊指令：${dolls.length}具守護人偶立即追加攻擊。`);
-    for(const d of dolls)await engine.executeEnemyDamage(d,{id:'pillar_order_slash',name:'指令斬擊',kind:'physical',target:'single',multiplier:.50},presenter);
+    const followup=engine.skillFor(skill.followupSkillId);
+    if(followup)for(const d of dolls)await engine.executeEnemyDamage(d,followup,presenter);
     return{handled:true};
   }
   if(skill.id==='pillar_repair_order'){
     const dolls=ownedLiving(engine,unit,x=>x.commandDoll);
-    for(const d of dolls)directHeal(engine,d,.15,d.name);
+    for(const d of dolls)directHeal(engine,d,Number(skill.healMaxHp)||0,d.name);
     return{handled:true};
   }
   if(skill.id==='evil_murloc_heal'){
     const target=ownedLiving(engine,unit,x=>x.week13Murloc).sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0];
-    if(target)directHeal(engine,target,.15,target.name);
+    if(target)directHeal(engine,target,Number(skill.healMaxHp)||0,target.name);
     return{handled:true};
   }
   if(skill.id==='zombie_priest_dark_blessing'){
-    temporary(unit,'zombie_priest_dark_blessing','🌑 黑暗祝福',3,{attack:unit.attack*.25,magicAttack:unit.magicAttack*.25});
-    engine.log('🌑 黑暗祝福：攻擊與魔攻提高25%，持續3回合。');
+    const atk=Math.max(0,Number(skill.atkMultiplier||1)-1),matk=Math.max(0,Number(skill.matkMultiplier||1)-1);
+    temporary(unit,'zombie_priest_dark_blessing','🌑 黑暗祝福',Number(skill.duration)||1,{attack:unit.attack*atk,magicAttack:unit.magicAttack*matk});
+    engine.log(`🌑 黑暗祝福：攻擊與魔攻提高${Math.round(Math.max(atk,matk)*100)}%，持續${Number(skill.duration)||1}回合。`);
     return{handled:true};
   }
   if(skill.dynamicHydraHeads&&unit.monsterId==='hydra'){
-    const ratio=unit.hp/unit.maxHp,hits=ratio<=.33?5:ratio<=.66?4:3;
-    await engine.executeEnemyDamage(unit,{...skill,hits,multiplierPerHit:.45,dynamicHydraHeads:false},presenter);
+    const ratio=unit.hp/unit.maxHp,rules=Array.isArray(skill.dynamicHitRules)?skill.dynamicHitRules:[],hits=(rules.find(r=>ratio<=Number(r.hpRatioMax))||rules.at(-1)||{}).hits||Number(skill.hits)||1;
+    await engine.executeEnemyDamage(unit,{...skill,hits,multiplierPerHit:Number(skill.multiplierPerHit)||1,dynamicHydraHeads:false},presenter);
     engine.log(`🐲 九頭巨蛇以 ${hits} 組蛇首連續撕咬。`);
     return{handled:true};
   }
   if(skill.id==='reaper_soul_harvest'){
-    const consumed=activeHarvest(engine);
+    const consumed=activeHarvest(engine,skill);
     if(!consumed.length)return{handled:true};
     const before=Number(engine.state.heroHp)||0;
-    await engine.executeEnemyDamage(unit,{...skill,multiplier:1+.25*consumed.length,bypassHound:true,requiresAnyHarvestStatus:false},presenter);
+    await engine.executeEnemyDamage(unit,{...skill,multiplier:Number(skill.multiplier||1)+Number(skill.harvestDamageBonusPerStatus||0)*consumed.length,bypassHound:true,requiresAnyHarvestStatus:false},presenter);
     if(before>Number(engine.state.heroHp||0)){
       engine.state.hero.statuses=(engine.state.hero.statuses||[]).filter(s=>!consumed.includes(s.type));
-      const heal=Math.max(1,Math.round(unit.maxHp*.05*consumed.length));unit.hp=Math.min(unit.maxHp,unit.hp+heal);
+      const heal=Math.max(1,Math.round(unit.maxHp*Number(skill.harvestHealMaxHpPerStatus||0)*consumed.length));unit.hp=Math.min(unit.maxHp,unit.hp+heal);
       engine.log(`🌾 靈魂收割消耗 ${consumed.length} 種負面狀態，恢復 ${heal} HP。`);
     }
     return{handled:true};
   }
   if(skill.combinedCannon){
     engine.log('💥 飛空艇主砲命中後引爆火藥。');
-    await engine.executeEnemyDamage(unit,{id:'captain_cannon_impact',name:'主砲撞擊',kind:'physical',target:'all',aoe:true,multiplier:1.30},presenter);
-    if(engine.state.heroHp>0)await engine.executeEnemyDamage(unit,{id:'captain_cannon_blast',name:'火藥爆炸',kind:'magic',element:'fire',target:'all',aoe:true,multiplier:.70,status:{id:'burn',chance:1,duration:3,maxHpDot:.04}},presenter);
+    for(const id of skill.followupSkillIds||[]){
+      if(engine.state.heroHp<=0)break;
+      const followup=engine.skillFor(id);if(followup)await engine.executeEnemyDamage(unit,followup,presenter);
+    }
     return{handled:true};
   }
   if(skill.combinedPegasusCharge){
     engine.log('🪽 飛馬騎士自高空俯衝，騎槍後接風爆。');
-    await engine.executeEnemyDamage(unit,{id:'pegasus_charge_lance',name:'天翔騎槍',kind:'physical',target:'single',multiplier:1.30},presenter);
-    if(engine.state.heroHp>0)await engine.executeEnemyDamage(unit,{id:'pegasus_charge_wind',name:'天翔風爆',kind:'magic',element:'wind',target:'single',multiplier:.50,status:{id:'sky_armor_break',chance:1,duration:2,defMultiplier:.80}},presenter);
+    for(const id of skill.followupSkillIds||[]){
+      if(engine.state.heroHp<=0)break;
+      const followup=engine.skillFor(id);if(followup)await engine.executeEnemyDamage(unit,followup,presenter);
+    }
     removeStatus(unit,'pegasus_takeoff');
     return{handled:true};
   }
   if(skill.id==='final_necro_repair'){
-    const dragon=linkedDragon(engine);if(dragon)directHeal(engine,dragon,.15,'骷髏巨龍');
+    const dragon=linkedDragon(engine);if(dragon)directHeal(engine,dragon,Number(skill.healMaxHp)||0,'骷髏巨龍');
     return{handled:true};
   }
 
