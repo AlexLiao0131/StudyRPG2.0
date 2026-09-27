@@ -1,34 +1,49 @@
 import { itemDefinition } from '../economy/economy-service.js';
 import { currentEquipmentContent } from './equipment-provider.js';
-import { equipmentBaseRows } from './equipment-base-database.js';
-
-const RARITY=Object.freeze({
-  common:{id:'common',name:'普通',icon:'⚪',affixCount:0,powerMult:.90},
-  uncommon:{id:'uncommon',name:'優良',icon:'🟢',affixCount:1,powerMult:1},
-  rare:{id:'rare',name:'稀有',icon:'🔵',affixCount:2,powerMult:1.08},
-  epic:{id:'epic',name:'史詩',icon:'🟣',affixCount:3,powerMult:1.18},
-  legendary:{id:'legendary',name:'傳說',icon:'🟠',affixCount:4,powerMult:1.30,uniqueOnly:true}
-});
-
-const STAT_POWER=Object.freeze({attack:1,magicAttack:1,defense:.8,magicDefense:.8,speed:1,maxHp:.10,maxEnergy:.15,crit:100,evade:110,block:100});
-const CLASS_WEIGHTS=Object.freeze({
-  '戰士':{attack:3,maxHp:2.4,defense:2.2,block:2,magicDefense:1,speed:.7},
-  '法師':{magicAttack:3,maxEnergy:2.5,crit:1.5,speed:1,magicDefense:1.2},
-  '牧師':{magicAttack:2.2,maxEnergy:2.2,maxHp:1.8,magicDefense:1.8,defense:1.2},
-  '獵人':{attack:2.7,speed:2.4,crit:2.2,maxEnergy:1.5,evade:1.2},
-  '盜賊':{attack:2.7,speed:2.6,crit:2.3,evade:2,maxEnergy:1.2},
-  '聖騎士':{attack:1.8,magicAttack:1.5,defense:2.3,magicDefense:2.1,maxHp:2.2,block:1.8},
-  '魔劍士':{attack:2.1,magicAttack:2.1,speed:1.7,maxEnergy:1.7,crit:1.3},
-  '初心者':{attack:1.5,magicAttack:1.2,defense:1.4,magicDefense:1.3,maxHp:1.3,speed:1.2},
-  '見習勇者':{attack:1.5,magicAttack:1.2,defense:1.4,magicDefense:1.3,maxHp:1.3,speed:1.2}
-});
 
 const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
 const uid=(prefix='eq')=>`${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
 const pick=(rows,random=Math.random)=>rows[Math.floor(random()*rows.length)]||null;
 
+function databaseRules(database=currentEquipmentContent()?.database){
+  return database?.rules&&typeof database.rules==='object'?database.rules:{};
+}
+function rarityTable(database=currentEquipmentContent()?.database){
+  return database?.rarities&&typeof database.rarities==='object'?database.rarities:{};
+}
+function powerWeights(database=currentEquipmentContent()?.database){
+  const w=databaseRules(database).powerWeights;
+  return w&&typeof w==='object'?w:{};
+}
+function classWeights(database,heroClass='初心者'){
+  const all=databaseRules(database).classWeights||{};
+  return all[heroClass]||all['初心者']||{};
+}
+function tierRules(database){
+  const t=databaseRules(database).tier;
+  return t&&typeof t==='object'?t:{};
+}
+function baseRows(database){
+  return Object.values(database?.bases||{}).map(raw=>{
+    const base=clone(raw),visualId=base.visualId||base.id;
+    base.visualId=visualId;
+    base.visual=clone(base.visual||{
+      inventory:`images/equipment/t0/${base.slot}/${visualId}.png`,
+      paperDollIdle:`images/equipment/paperdoll/t0/${visualId}_idle.png`,
+      paperDollBattle:`images/equipment/paperdoll/t0/${visualId}_battle.png`
+    });
+    base.inventoryIcon=base.inventoryIcon||`images/equipment/icons/${base.slot}/${visualId}.png`;
+    return base;
+  });
+}
+
 export function equipmentPowerScore(item){
-  const stat=Object.entries(item?.stats||{}).reduce((sum,[key,value])=>sum+(STAT_POWER[key]||0)*(Number(value)||0),0);
+  const weights=powerWeights();
+  if(!Object.keys(weights).length){
+    const snapshot=Number(item?.powerScore);
+    return Number.isFinite(snapshot)?Math.max(0,snapshot):0;
+  }
+  const stat=Object.entries(item?.stats||{}).reduce((sum,[key,value])=>sum+(Number(weights[key])||0)*(Number(value)||0),0);
   const special=(item?.affixes||[]).filter(a=>a?.kind!=='stat').reduce((sum,a)=>sum+(Number(a?.power)||0),0);
   return Math.max(0,Math.round((stat+special)*10)/10);
 }
@@ -60,7 +75,7 @@ export function equipmentDropSource({eventType='daily',monsterId='',dateStr=''}=
 
 function chooseRarity(source,database,random=Math.random){
   const rates=database?.dropRates?.[source]||{};
-  const entries=Object.keys(RARITY).map(id=>[id,Math.max(0,Number(rates[id])||0)]);
+  const entries=Object.keys(rarityTable(database)).map(id=>[id,Math.max(0,Number(rates[id])||0)]);
   const total=entries.reduce((n,x)=>n+x[1],0);
   if(total<=0)return null;
   let r=random()*Math.max(100,total);
@@ -69,14 +84,7 @@ function chooseRarity(source,database,random=Math.random){
 }
 
 function reconstructBases(database){
-  const out=new Map(equipmentBaseRows().map(base=>[base.id,clone(base)]));
-  for(const row of Object.values(database?.templates||{})){
-    const item=row?.itemData;if(!item?.baseId)continue;const base=out.get(item.baseId);if(!base)continue;
-    if(item.visualId)base.visualId=item.visualId;
-    if(item.visual)base.visual=clone(item.visual);
-    if(item.inventoryIcon)base.inventoryIcon=item.inventoryIcon;
-  }
-  return [...out.values()];
+  return baseRows(database);
 }
 
 function rollValue(a,mult=1,random=Math.random){
@@ -87,37 +95,57 @@ function rollValue(a,mult=1,random=Math.random){
 
 function generatedName(base,rarity,affixes,tier){
   const prefix=affixes[0]?.name||'古塔',suffix=affixes.some(a=>a.kind==='summon')?'・契靈':affixes.some(a=>a.kind==='trigger')?'・回響':'';
-  return `${rarity.icon} ${tier}・${prefix}${base.name}${suffix}`;
+  return `${rarity.icon||''} ${tier}・${prefix}${base.name}${suffix}`;
 }
 
 function randomEquipment({database,affixes,rarityId,week=1,floor=0,cycle=1,heroClass='初心者',source='',random=Math.random}){
-  const rarity=RARITY[rarityId]||RARITY.common,bases=reconstructBases(database);if(!bases.length)return null;
-  const tierNumber=source==='replay'?0:source==='tower'?Math.max(0,Math.floor(Math.max(0,floor)/15)+cycle-1):Math.max(0,Math.floor((Math.max(1,week)-1)/5)+Math.floor(Math.max(0,floor)/15)+cycle-1);
-  const tier=`T${tierNumber}`,tries=14,weights=CLASS_WEIGHTS[heroClass]||CLASS_WEIGHTS['初心者'];let best=null,bestScore=-Infinity;
+  const rarities=rarityTable(database),rarity=rarities[rarityId]||rarities.common,bases=reconstructBases(database);
+  if(!rarity||!bases.length)return null;
+  const tierRule=tierRules(database),weekStep=Math.max(1,Number(tierRule.weekStep)||5),floorStep=Math.max(1,Number(tierRule.floorStep)||15);
+  const tierNumber=source==='replay'?0:source==='tower'
+    ?Math.max(0,Math.floor(Math.max(0,floor)/floorStep)+cycle-1)
+    :Math.max(0,Math.floor((Math.max(1,week)-1)/weekStep)+Math.floor(Math.max(0,floor)/floorStep)+cycle-1);
+  const tier=`T${tierNumber}`,tries=Math.max(1,Number(tierRule.defaultTries)||14),weights=classWeights(database,heroClass);
+  let best=null,bestScore=-Infinity;
 
   for(let attempt=0;attempt<tries;attempt++){
     const base=pick(bases,random);if(!base)continue;
     const stats={...base.stats};
-    // IMPORTANT: only canonical 1.0 Affix DB content is present in `affixes`.
     const pool=Object.values(affixes||{}).filter(a=>(a.slots||[]).includes(base.slot)).map(clone),chosen=[];
-    let count=rarity.affixCount+Math.min(2,tierNumber);
-    if(rarityId==='epic'&&count===3&&random()<.35)count=4;
+    let count=Number(rarity.affixCount||0)+Math.min(2,tierNumber);
 
     while(chosen.length<count&&pool.length){
       const idx=Math.floor(random()*pool.length),a=pool.splice(idx,1)[0];
       if(a.kind==='stat'){
-        a.value=rollValue(a,rarity.powerMult*(1+tierNumber*.18),random);
+        a.value=rollValue(a,Number(rarity.powerMult||1)*(1+tierNumber*Number(tierRule.tierGrowth??.18)),random);
         stats[a.stat]=(Number(stats[a.stat])||0)+a.value;
         a.power=a.value*Number(a.powerPerUnit||1);
       }
       chosen.push(a);
     }
 
+    if(rarity.id==='epic'&&chosen.length===3&&random()<Number(tierRule.epicFourthChance??.35)){
+      const used=new Set(chosen.map(a=>a.id));
+      const extra=Object.values(affixes||{}).filter(a=>(a.slots||[]).includes(base.slot)&&!used.has(a.id));
+      if(extra.length){
+        const a=clone(pick(extra,random));
+        if(a.kind==='stat'){
+          a.value=rollValue(a,1,random);
+          stats[a.stat]=(Number(stats[a.stat])||0)+a.value;
+          a.power=a.value*Number(a.powerPerUnit||1);
+        }
+        chosen.push(a);
+      }
+    }
+
+    const visuals=Array.isArray(database?.iconPools?.[base.slot])?database.iconPools[base.slot]:[];
+    const visualId=visuals.length?(pick(visuals,random)||base.visualId||base.id):(base.visualId||base.id);
     const item={
       id:uid('equipment_instance'),generated:true,tier,rarity:rarity.id,rarityName:rarity.name,name:'',
-      icon:base.icon,category:'equipment',equipSlot:base.slot,baseId:base.id,visualId:base.visualId,
-      visual:clone(base.visual),inventoryIcon:base.inventoryIcon,stats,affixes:chosen,setId:null,uniqueId:null,
-      price:0,dailyLimit:1,active:false,enhancementLevel:0,createdAt:new Date().toISOString()
+      icon:base.icon,category:'equipment',equipSlot:base.slot,baseId:base.id,visualId,
+      visual:clone(base.visual),inventoryIcon:`images/equipment/icons/${base.slot}/${visualId}.png`,
+      stats,affixes:chosen,setId:null,uniqueId:null,price:0,dailyLimit:1,active:false,
+      enhancementLevel:0,createdAt:new Date().toISOString()
     };
     item.name=generatedName(base,rarity,chosen,tier);
     item.powerScore=equipmentPowerScore(item);
@@ -136,7 +164,7 @@ function randomEquipment({database,affixes,rarityId,week=1,floor=0,cycle=1,heroC
 
   if(best){
     best.smartGenerated=true;
-    best.generationContext={week,floor,cycle,heroClass,formulaVersion:database?.formulaVersion||''};
+    best.generationContext={week,floor,cycle,heroClass,formulaVersion:databaseRules(database).version||database?.formulaVersion||''};
     best.description=`${best.tier} ${best.rarityName}｜裝備評估 ${best.powerScore}｜${best.affixes.map(a=>a.text||a.name).join('、')}｜智慧適配：${heroClass}・第${week}週`;
   }
   return best;
@@ -172,7 +200,6 @@ function uniqueEquipment({database,affixes,floor=1,random=Math.random}){
   const chance=floor%5===0?Number(orange.bossFloorChance||0):Number(orange.normalFloorChance||0);
   if(chance<=0||random()>=chance)return null;
 
-  // Canonical source: Equipment DB only. No save-state / parallel unique definition pool.
   const defs=database?.uniqueEquipment||{};
   const eligible=Object.entries(defs).filter(([,def])=>Number(def?.minFloor||1)<=floor);
   if(!eligible.length)return null;
@@ -237,7 +264,7 @@ export function rollEquipmentDrop({source='weekday',week=1,floor=0,cycle=1,heroC
 
   return{
     type:'equipment',source,rarity:rarityId,item,
-    label:`${RARITY[rarityId]?.icon||''} ${item.name}`.trim(),unique:false
+    label:`${rarityTable(content.database)[rarityId]?.icon||''} ${item.name}`.trim(),unique:false
   };
 }
 
