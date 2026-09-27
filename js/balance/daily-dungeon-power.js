@@ -5,14 +5,140 @@ import { isTaskScheduled } from '../tasks/task-service.js';
 import { encounterForDate } from '../world/world-service.js';
 import { monsterDef } from '../battle/monster-database.js';
 import { semesterEquipmentPowerBonus } from '../campaign/endgame-service.js';
+
 const DAILY_POSITION=.50,FRIDAY_BOSS_POSITION=.70;
-function rewardMap(t){const out={str:0,agi:0,int:0,will:0,virtue:0};if((t.rewardMode||'auto')==='auto'){Object.assign(out,autoTaskRewards(t.category||'custom',t.difficulty||'normal'));return out}const manual=t.manualStatRewards&&typeof t.manualStatRewards==='object'?t.manualStatRewards:null;if(manual){for(const[k,v]of Object.entries(manual))if(k in out)out[k]=Math.max(0,Number(v)||0);return out}if(t.fixedStat in out)out[t.fixedStat]=Math.max(0,Number(t.fixedStatValue)||0);if(t.fixedStat2 in out)out[t.fixedStat2]=Math.max(out[t.fixedStat2]||0,Number(t.fixedStatValue2)||0);return out}
+
+function rewardMap(t){
+  const out={str:0,agi:0,int:0,will:0,virtue:0};
+  if((t.rewardMode||'auto')==='auto'){Object.assign(out,autoTaskRewards(t.category||'custom',t.difficulty||'normal'));return out}
+  const manual=t.manualStatRewards&&typeof t.manualStatRewards==='object'?t.manualStatRewards:null;
+  if(manual){for(const[k,v]of Object.entries(manual))if(k in out)out[k]=Math.max(0,Number(v)||0);return out}
+  if(t.fixedStat in out)out[t.fixedStat]=Math.max(0,Number(t.fixedStatValue)||0);
+  if(t.fixedStat2 in out)out[t.fixedStat2]=Math.max(out[t.fixedStat2]||0,Number(t.fixedStatValue2)||0);
+  return out;
+}
 function mapPower(m){return Math.max(0,(Number(m?.str)||0)*1.2+(Number(m?.agi)||0)*1.1+(Number(m?.int)||0)+(Number(m?.will)||0)*.8)}
 export function taskCombatPower(t){return mapPower(rewardMap(t))}
-function recordCreditedPower(r){if(!r||r.approvalStatus==='rejected')return 0;const m=r.approvedRewards?.statGain||(r.rollback?.statGain||r.rewards?.statGain);const base=mapPower(m);if(r.approvalStatus==='pending'||r.approvalStatus==null)return base;const ratio=Number.isFinite(Number(r.approvalRatio))?Math.max(0,Math.min(1,Number(r.approvalRatio))):(r.approvalStatus==='approved'?1:0);return base*ratio}
-export function dailyTaskPlan(dateStr=localDateString()){const g=getGame(),creditedBy={},recorded=new Set();for(const r of(g.taskRecords||[])){if(r.date!==dateStr||r.voluntaryChallenge===true)continue;recorded.add(r.taskId);creditedBy[r.taskId]=(creditedBy[r.taskId]||0)+recordCreditedPower(r)}let planned=0,credited=0,count=0;for(const t of(g.tasks||[])){if(!isTaskScheduled(t,dateStr)&&!recorded.has(t.id))continue;const limit=Math.max(1,Number(t.dailyLimit)||1),unit=taskCombatPower(t),taskPlanned=unit*limit;planned+=taskPlanned;credited+=Math.min(taskPlanned,Math.max(0,creditedBy[t.id]||0));count+=limit}return{planned,credited,remaining:Math.max(0,planned-credited),count}}
-export function dailyBalancePosition(dateStr=localDateString()){const e=encounterForDate(dateStr);return e&&monsterDef(e.monsterId).boss?FRIDAY_BOSS_POSITION:DAILY_POSITION}
-function refreshSnapshotFields(old,plan,position,reason){old.plannedTaskPower=Math.round(plan.planned*100)/100;old.maximumTaskPower=Math.round((Number(old.baseCombatPower||old.noTaskBasePower||1)+plan.planned)*100)/100;old.referencePower=Math.round((Number(old.baseCombatPower||old.noTaskBasePower||1)+plan.planned*position)*100)/100;old.creditedTaskPower=Math.round(plan.credited*100)/100;old.remainingTaskPower=Math.round(plan.remaining*100)/100;old.taskCount=plan.count;old.balancePosition=position;old.updatedAt=new Date().toISOString();old.updateReason=reason;save();return old}
-export function reconcileDailyBalanceSnapshot(dateStr=localDateString(),{allowDecrease=false,reason='task-plan-change'}={}){const g=getGame(),old=g.dailyBalance;if(!old||old.date!==dateStr||!Number.isFinite(Number(old.referencePower)))return ensureDailyBalanceSnapshot(dateStr);const plan=dailyTaskPlan(dateStr),prev=Math.max(0,Number(old.plannedTaskPower)||0),delta=plan.planned-prev;if(delta>.001||(allowDecrease&&delta<-.001))return refreshSnapshotFields(old,plan,dailyBalancePosition(dateStr),reason);old.creditedTaskPower=Math.round(plan.credited*100)/100;old.remainingTaskPower=Math.round(plan.remaining*100)/100;old.taskCount=plan.count;save();return old}
-export function ensureDailyBalanceSnapshot(dateStr=localDateString()){const g=getGame(),plan=dailyTaskPlan(dateStr),base=Math.max(1,combatPower()),position=dailyBalancePosition(dateStr),old=g.dailyBalance;if(old&&old.date===dateStr&&Number.isFinite(Number(old.referencePower))){const prev=Math.max(0,Number(old.plannedTaskPower)||0);if(plan.planned>prev+.001)return refreshSnapshotFields(old,plan,position,'task-plan-increased');old.creditedTaskPower=Math.round(plan.credited*100)/100;old.remainingTaskPower=Math.round(plan.remaining*100)/100;old.taskCount=plan.count;save();return old}const noTaskBase=Math.max(1,base-plan.credited),maximum=noTaskBase+plan.planned,reference=noTaskBase+(maximum-noTaskBase)*position,snap={date:dateStr,formula:'daily-a-b-midpoint',liveCombatPowerAtLock:Math.round(base*100)/100,baseCombatPower:Math.round(noTaskBase*100)/100,noTaskBasePower:Math.round(noTaskBase*100)/100,maximumTaskPower:Math.round(maximum*100)/100,plannedTaskPower:Math.round(plan.planned*100)/100,creditedTaskPower:Math.round(plan.credited*100)/100,remainingTaskPower:Math.round(plan.remaining*100)/100,taskCount:plan.count,referencePower:Math.round(reference*100)/100,balancePosition:position,createdAt:new Date().toISOString()};g.dailyBalance=snap;save();return snap}
-export function calibratedDailyMonsterPower(dateStr=localDateString()){const snap=ensureDailyBalanceSnapshot(dateStr),bonus=semesterEquipmentPowerBonus(dateStr);if(Number(snap.equipmentCarryBonus||0)!==bonus){snap.equipmentCarryBonus=bonus;snap.equipmentCarryRate=bonus>0?Number(getGame().balanceSettings?.gearCarryRate)||.55:0;save()}return Math.max(18,Math.round(snap.referencePower+bonus))}
+function recordCreditedPower(r){
+  if(!r||r.approvalStatus==='rejected')return 0;
+  const m=r.approvedRewards?.statGain||(r.rollback?.statGain||r.rewards?.statGain),base=mapPower(m);
+  if(r.approvalStatus==='pending'||r.approvalStatus==null)return base;
+  const ratio=Number.isFinite(Number(r.approvalRatio))?Math.max(0,Math.min(1,Number(r.approvalRatio))):(r.approvalStatus==='approved'?1:0);
+  return base*ratio;
+}
+export function dailyTaskPlan(dateStr=localDateString()){
+  const g=getGame(),creditedBy={},recorded=new Set();
+  for(const r of(g.taskRecords||[])){
+    if(r.date!==dateStr||r.voluntaryChallenge===true)continue;
+    recorded.add(r.taskId);
+    creditedBy[r.taskId]=(creditedBy[r.taskId]||0)+recordCreditedPower(r);
+  }
+  let planned=0,credited=0,count=0;
+  for(const t of(g.tasks||[])){
+    if(!isTaskScheduled(t,dateStr)&&!recorded.has(t.id))continue;
+    const limit=Math.max(1,Number(t.dailyLimit)||1),unit=taskCombatPower(t),taskPlanned=unit*limit;
+    planned+=taskPlanned;
+    credited+=Math.min(taskPlanned,Math.max(0,creditedBy[t.id]||0));
+    count+=limit;
+  }
+  return{planned,credited,remaining:Math.max(0,planned-credited),count};
+}
+export function dailyBalancePosition(dateStr=localDateString()){
+  const e=encounterForDate(dateStr);
+  return e&&monsterDef(e.monsterId).boss?FRIDAY_BOSS_POSITION:DAILY_POSITION;
+}
+function refreshSnapshotFields(old,plan,position,reason){
+  old.plannedTaskPower=Math.round(plan.planned*100)/100;
+  old.maximumTaskPower=Math.round((Number(old.baseCombatPower||old.noTaskBasePower||1)+plan.planned)*100)/100;
+  old.referencePower=Math.round((Number(old.baseCombatPower||old.noTaskBasePower||1)+plan.planned*position)*100)/100;
+  old.creditedTaskPower=Math.round(plan.credited*100)/100;
+  old.remainingTaskPower=Math.round(plan.remaining*100)/100;
+  old.taskCount=plan.count;
+  old.balancePosition=position;
+  old.updatedAt=new Date().toISOString();
+  old.updateReason=reason;
+  save();
+  return old;
+}
+function normalizeSnapshot(old,dateStr,plan,livePower,position){
+  if(!old||old.date!==dateStr)return old;
+  let changed=false;
+  const finite=(v)=>Number.isFinite(Number(v));
+  const set=(key,value)=>{
+    if(!finite(old[key])){old[key]=Math.round(Number(value)*100)/100;changed=true}
+  };
+
+  set('liveCombatPowerAtLock',livePower);
+
+  const inferredBase=finite(old.baseCombatPower)
+    ?Number(old.baseCombatPower)
+    :finite(old.noTaskBasePower)
+      ?Number(old.noTaskBasePower)
+      :Math.max(1,Number(old.liveCombatPowerAtLock||livePower)-Number(plan.credited||0));
+
+  set('baseCombatPower',inferredBase);
+  set('noTaskBasePower',Number(old.baseCombatPower)||inferredBase);
+  set('plannedTaskPower',plan.planned);
+  set('maximumTaskPower',(Number(old.baseCombatPower)||inferredBase)+Math.max(Number(old.plannedTaskPower)||0,Number(plan.planned)||0));
+  set('creditedTaskPower',plan.credited);
+  set('remainingTaskPower',plan.remaining);
+  set('taskCount',plan.count);
+  set('balancePosition',position);
+
+  if(!finite(old.referencePower)){
+    old.referencePower=Math.round(((Number(old.baseCombatPower)||inferredBase)+(Number(old.plannedTaskPower)||0)*Number(old.balancePosition||position))*100)/100;
+    changed=true;
+  }
+  if(!old.formula){old.formula='daily-a-b-midpoint';changed=true}
+  if(changed){
+    old.normalizedAt=new Date().toISOString();
+    old.updateReason='legacy-snapshot-normalized';
+    save();
+  }
+  return old;
+}
+export function reconcileDailyBalanceSnapshot(dateStr=localDateString(),{allowDecrease=false,reason='task-plan-change'}={}){
+  const g=getGame(),old=g.dailyBalance;
+  if(!old||old.date!==dateStr||!Number.isFinite(Number(old.referencePower)))return ensureDailyBalanceSnapshot(dateStr);
+  const plan=dailyTaskPlan(dateStr),base=Math.max(1,combatPower()),position=dailyBalancePosition(dateStr);
+  normalizeSnapshot(old,dateStr,plan,base,position);
+  const prev=Math.max(0,Number(old.plannedTaskPower)||0),delta=plan.planned-prev;
+  if(delta>.001||(allowDecrease&&delta<-.001))return refreshSnapshotFields(old,plan,position,reason);
+  old.creditedTaskPower=Math.round(plan.credited*100)/100;
+  old.remainingTaskPower=Math.round(plan.remaining*100)/100;
+  old.taskCount=plan.count;
+  save();
+  return old;
+}
+export function ensureDailyBalanceSnapshot(dateStr=localDateString()){
+  const g=getGame(),plan=dailyTaskPlan(dateStr),base=Math.max(1,combatPower()),position=dailyBalancePosition(dateStr),old=g.dailyBalance;
+  if(old&&old.date===dateStr&&Number.isFinite(Number(old.referencePower))){
+    normalizeSnapshot(old,dateStr,plan,base,position);
+    const prev=Math.max(0,Number(old.plannedTaskPower)||0);
+    if(plan.planned>prev+.001)return refreshSnapshotFields(old,plan,position,'task-plan-increased');
+    old.creditedTaskPower=Math.round(plan.credited*100)/100;
+    old.remainingTaskPower=Math.round(plan.remaining*100)/100;
+    old.taskCount=plan.count;
+    save();
+    return old;
+  }
+
+  const noTaskBase=Math.max(1,base-plan.credited),maximum=noTaskBase+plan.planned,reference=noTaskBase+(maximum-noTaskBase)*position;
+  const snap={
+    date:dateStr,formula:'daily-a-b-midpoint',liveCombatPowerAtLock:Math.round(base*100)/100,
+    baseCombatPower:Math.round(noTaskBase*100)/100,noTaskBasePower:Math.round(noTaskBase*100)/100,
+    maximumTaskPower:Math.round(maximum*100)/100,plannedTaskPower:Math.round(plan.planned*100)/100,
+    creditedTaskPower:Math.round(plan.credited*100)/100,remainingTaskPower:Math.round(plan.remaining*100)/100,
+    taskCount:plan.count,referencePower:Math.round(reference*100)/100,balancePosition:position,createdAt:new Date().toISOString()
+  };
+  g.dailyBalance=snap;save();return snap;
+}
+export function calibratedDailyMonsterPower(dateStr=localDateString()){
+  const snap=ensureDailyBalanceSnapshot(dateStr),bonus=semesterEquipmentPowerBonus(dateStr);
+  if(Number(snap.equipmentCarryBonus||0)!==bonus){
+    snap.equipmentCarryBonus=bonus;
+    snap.equipmentCarryRate=bonus>0?Number(getGame().balanceSettings?.gearCarryRate)||.55:0;
+    save();
+  }
+  return Math.max(18,Math.round(Number(snap.referencePower)||18)+bonus);
+}
