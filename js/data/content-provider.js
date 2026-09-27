@@ -6,8 +6,6 @@ let normalizedSource=null;
 let normalizedDatabase=null;
 
 const LEGACY_MONSTER_SKILL_OVERRIDES=Object.freeze({
-  // 1.0 Runtime 對這兩個護盾固定套用 35% 減傷，但舊 skill-database 缺少宣告欄位。
-  // Migration 階段在 Provider 補成正式資料，避免 BattleEngine 再靠 skill id 判斷。
   golden_shield:{damageTakenMultiplier:.65,duration:2},
   mana_shield:{damageTakenMultiplier:.65,duration:2}
 });
@@ -18,11 +16,9 @@ function normalizeContentDatabase(source){
 
   const monsterSkills={...(source.monsterSkills||{})};
 
-  // 2.0-only content absent from the legacy Skill DB. Never overwrites a real legacy definition.
   for(const [id,definition] of Object.entries(V2_MONSTER_SKILLS)){
     if(monsterSkills[id]==null)monsterSkills[id]={...definition};
   }
-  // Fields that legacy data intentionally lacks but the 2.0 runtime needs.
   for(const [id,extension] of Object.entries(V2_MONSTER_SKILL_EXTENSIONS)){
     if(monsterSkills[id])monsterSkills[id]={...monsterSkills[id],...extension};
   }
@@ -46,24 +42,48 @@ export function currentContentDatabase(){
   return normalizeContentDatabase(globalThis.STUDYRPG_SKILL_DATABASE||null);
 }
 
+function loadSkillDatabase(){
+  if(globalThis.STUDYRPG_SKILL_DATABASE)return Promise.resolve(globalThis.STUDYRPG_SKILL_DATABASE);
+  if(typeof document==='undefined')return Promise.reject(new Error('目前環境無法載入 Skill DB'));
+
+  return new Promise((resolve,reject)=>{
+    const selector='script[data-studyrpg-content="skill-database"]';
+    const old=document.querySelector(selector);
+
+    // 若節點存在但 DB 不存在，代表它的 load/error 已經發生過。
+    // 不能再掛 listener 等舊事件，直接移除並重新正式載入。
+    if(old)old.remove();
+
+    const script=document.createElement('script');
+    script.dataset.studyrpgContent='skill-database';
+    script.src=APP_CONFIG.assetBase+'skill-database.js';
+
+    script.onload=()=>{
+      const db=globalThis.STUDYRPG_SKILL_DATABASE||null;
+      if(db)resolve(db);
+      else reject(new Error('Skill DB 已載入，但 STUDYRPG_SKILL_DATABASE 不存在'));
+    };
+    script.onerror=()=>{
+      script.remove();
+      reject(new Error('Skill DB 載入失敗'));
+    };
+
+    document.head.appendChild(script);
+  });
+}
+
 export async function ensureContentDatabase(){
   const ready=currentContentDatabase();
   if(ready)return ready;
   if(loading)return loading;
-  loading=new Promise(resolve=>{
-    if(typeof document==='undefined'){resolve(null);return;}
-    const old=document.querySelector('script[data-studyrpg-content="skill-database"]');
-    if(old){
-      old.addEventListener('load',()=>resolve(currentContentDatabase()),{once:true});
-      old.addEventListener('error',()=>resolve(null),{once:true});
-      return;
-    }
-    const script=document.createElement('script');
-    script.dataset.studyrpgContent='skill-database';
-    script.src=APP_CONFIG.assetBase+'skill-database.js';
-    script.onload=()=>resolve(currentContentDatabase());
-    script.onerror=()=>resolve(null);
-    document.head.appendChild(script);
-  });
+
+  loading=loadSkillDatabase()
+    .then(source=>{
+      const db=normalizeContentDatabase(source);
+      if(!db)throw new Error('Skill DB 無法初始化');
+      return db;
+    })
+    .finally(()=>{loading=null});
+
   return loading;
 }
