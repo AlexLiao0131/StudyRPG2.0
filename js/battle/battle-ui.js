@@ -53,16 +53,74 @@ async function presenter(event,s){
   if(!played)await fallbackAttackAnimation(event,actor,target);else if(event.result?.damage>0)target.animate([{filter:'brightness(1)'},{filter:'brightness(2.2)'},{filter:'brightness(1)'}],{duration:220});
 }
 function settle(result){if(settled||!engine?.state)return;settled=true;settlement=settleBattle(engine,result)}
+function submenu(){
+  return overlay?.querySelector('#bSubmenu')||null;
+}
+function hideSubmenu(){
+  const box=submenu();if(!box)return;
+  box.classList.remove('show');box.innerHTML='';
+}
+function showSubmenu(html){
+  const box=submenu();if(!box)return null;
+  box.innerHTML=html;box.classList.add('show');
+  requestAnimationFrame(()=>box.scrollIntoView({block:'nearest',behavior:'smooth'}));
+  return box;
+}
 export async function openBattle(battleEngine,closeCallback){
-  engine=battleEngine;onClose=closeCallback;settled=false;settlement=null;heroPresentationAction=null;const[skills,,equipmentContent]=await Promise.all([availableBattleSkills(),engine.prepare(),ensureEquipmentContent(),ensureVisualContent()]);
+  engine=battleEngine;onClose=closeCallback;settled=false;settlement=null;heroPresentationAction=null;const[loadedSkills,,equipmentContent]=await Promise.all([availableBattleSkills(),engine.prepare(),ensureEquipmentContent(),ensureVisualContent()]);
+  const skills=Array.isArray(loadedSkills)?loadedSkills:[];
   if(['replay','tower'].includes(engine.eventType)&&!equipmentContent){alert('裝備資料庫載入失敗，本次未開始戰鬥，避免遺失保證掉落。');const cb=onClose;engine=null;onClose=null;cb?.();return}
   const s=engine.start();
   overlay=document.createElement('div');overlay.className='battle-overlay-v2';
-  overlay.innerHTML=`<div class="battle-window-v2"><div class="battle-top-v2"><div class="battle-unit-v2"><b>${s.hero.name}</b><div class="hp-bar-v2"><i id="bHeroHp"></i></div><div id="bHeroHpText" class="bar-text"></div><div class="energy-bar-v2"><i id="bHeroEnergy"></i></div><div id="bHeroEnergyText" class="bar-text"></div><div id="bHeroStatus" class="battle-status-line"></div></div><div class="battle-unit-v2"><b id="bEnemyName">${s.enemies[0]?.name||'敵人'}</b><div class="hp-bar-v2"><i id="bEnemyHp"></i></div><div id="bEnemyHpText" class="bar-text"></div><div id="bEnemyStatus" class="battle-status-line"></div></div></div><div id="bTargetStrip" class="battle-target-strip"></div><div class="battle-arena-v2" data-scene="battle">${background()}<div id="bRound" class="battle-round">ROUND 0</div><div class="scene-actor battle-actor hero" data-actor="hero" data-battle-actor="hero"><img src="${assetUrl(heroSpritePath('idle'))}" alt="勇者"></div><div id="bEnemyLayer"></div></div><div id="bLog" class="battle-log-v2"></div><div class="battle-actions-v2"><button data-battle-action="attack" class="action-button red">⚔️ 攻擊<small>普通攻擊</small></button><button id="bSkills" class="action-button purple">✨ 技能<small>${s.formal?s.formal.cls:'最多4槽'}</small></button><button id="bItems" class="action-button blue">🎒 道具<small>戰鬥消耗品</small></button><button id="bCancel" class="action-button">關閉<small>不結算</small></button></div><div id="bSubmenu" class="battle-submenu-v2"></div><div id="bResult"></div></div>`;
+  overlay.innerHTML=`<div class="battle-window-v2"><div class="battle-top-v2"><div class="battle-unit-v2"><b>${s.hero.name}</b><div class="hp-bar-v2"><i id="bHeroHp"></i></div><div id="bHeroHpText" class="bar-text"></div><div class="energy-bar-v2"><i id="bHeroEnergy"></i></div><div id="bHeroEnergyText" class="bar-text"></div><div id="bHeroStatus" class="battle-status-line"></div></div><div class="battle-unit-v2"><b id="bEnemyName">${s.enemies[0]?.name||'敵人'}</b><div class="hp-bar-v2"><i id="bEnemyHp"></i></div><div id="bEnemyHpText" class="bar-text"></div><div id="bEnemyStatus" class="battle-status-line"></div></div></div><div id="bTargetStrip" class="battle-target-strip"></div><div class="battle-arena-v2" data-scene="battle">${background()}<div id="bRound" class="battle-round">ROUND 0</div><div class="scene-actor battle-actor hero" data-actor="hero" data-battle-actor="hero"><img src="${assetUrl(heroSpritePath('idle'))}" alt="勇者"></div><div id="bEnemyLayer"></div></div><div id="bLog" class="battle-log-v2"></div><div class="battle-actions-v2"><button data-battle-action="attack" class="action-button red">⚔️ 攻擊<small>普通攻擊</small></button><button id="bSkills" class="action-button purple">✨ 技能<small>${s.formal?s.formal.cls:'最多4槽'}</small></button><button id="bItems" class="action-button blue">🎒 道具<small>戰鬥消耗品</small></button></div><div id="bSubmenu" class="battle-submenu-v2"></div><div id="bResult"></div></div>`;
   document.body.appendChild(overlay);engine.subscribe((state,event)=>{if(event.type==='item-used'&&event.stackKey)consumeBattleConsumable(event.stackKey);if(event.type==='end')settle(event.result);renderState(state)});renderState(s);applySceneLayout(overlay);
-  overlay.querySelector('[data-battle-action="attack"]').onclick=async()=>{heroPresentationAction={id:'basic_attack',kind:'attack',actionType:'melee'};try{await engine.playerAction({kind:'attack',name:'攻擊'},presenter)}finally{heroPresentationAction=null}};
-  overlay.querySelector('#bSkills').onclick=()=>{const box=overlay.querySelector('#bSubmenu');box.innerHTML=skills.map((sk,i)=>`<button class="battle-choice-v2" data-skill-index="${i}"><strong>${sk.icon||'✨'} ${sk.name}　${sk.formalClass?formalCostIcon(engine.state,sk):'⚡'}${Number(sk.cost)||0}</strong><span>${sk.description||''}</span></button>`).join('');box.classList.toggle('show');box.querySelectorAll('[data-skill-index]').forEach(b=>b.onclick=async()=>{const skill=skills[Number(b.dataset.skillIndex)];if(!skill)return;box.classList.remove('show');heroPresentationAction=skill;try{const used=await engine.playerAction({...skill,kind:'skill'},presenter);if(used&&!skill.formalClass)recordBeginnerSkillUsage(skill.id)}finally{heroPresentationAction=null}})};
-  overlay.querySelector('#bItems').onclick=()=>{const box=overlay.querySelector('#bSubmenu'),items=battleConsumableGroups();box.innerHTML=items.length?items.map((row,i)=>`<button class="battle-choice-v2" data-item-index="${i}"><strong>${row.item?.icon||'🧪'} ${row.name}　×${row.count}</strong><span>${row.item?.description||'戰鬥中使用後消耗 1 個。'}</span></button>`).join(''):'<div class="card small">沒有可用的戰鬥消耗品。</div>';box.classList.add('show');box.querySelectorAll('[data-item-index]').forEach(b=>b.onclick=()=>{const row=items[Number(b.dataset.itemIndex)];if(!row)return;box.classList.remove('show');engine.playerAction({kind:'item',name:row.name,icon:row.item?.icon||'🧪',stackKey:row.stackKey,effectType:row.item?.effectType||'',effectValue:Number(row.item?.effectValue)||0,effectTurns:Number(row.item?.effectTurns)||0},presenter)})};
-  overlay.querySelector('#bTargetStrip').onclick=e=>{const b=e.target.closest('[data-target]');if(b)engine.selectTarget(b.dataset.target)};overlay.querySelector('#bCancel').onclick=closeBattle;
+
+  overlay.querySelector('[data-battle-action="attack"]').onclick=async()=>{
+    hideSubmenu();
+    heroPresentationAction={id:'basic_attack',kind:'attack',actionType:'melee'};
+    try{await engine.playerAction({kind:'attack',name:'攻擊'},presenter)}finally{heroPresentationAction=null}
+  };
+
+  overlay.querySelector('#bSkills').onclick=()=>{
+    let html='';
+    try{
+      html=skills.length
+        ?skills.map((sk,i)=>`<button class="battle-choice-v2" data-skill-index="${i}"><strong>${sk.icon||'✨'} ${sk.name}　${sk.formalClass?formalCostIcon(engine.state,sk):'⚡'}${Number(sk.cost)||0}</strong><span>${sk.description||''}</span></button>`).join('')
+        :'<div class="card small">目前沒有可用技能。</div>';
+    }catch(error){
+      console.error('[StudyRPG2] skill menu render failed',error);
+      html=`<div class="card small bad">技能選單載入失敗：${String(error?.message||error||'未知錯誤')}</div>`;
+    }
+    const box=showSubmenu(html);if(!box)return;
+    box.querySelectorAll('[data-skill-index]').forEach(b=>b.onclick=async()=>{
+      const skill=skills[Number(b.dataset.skillIndex)];if(!skill)return;
+      hideSubmenu();heroPresentationAction=skill;
+      try{
+        const used=await engine.playerAction({...skill,kind:'skill'},presenter);
+        if(used&&!skill.formalClass)recordBeginnerSkillUsage(skill.id);
+      }finally{heroPresentationAction=null}
+    });
+  };
+
+  overlay.querySelector('#bItems').onclick=()=>{
+    let items=[],html='';
+    try{
+      items=battleConsumableGroups();
+      html=items.length
+        ?items.map((row,i)=>`<button class="battle-choice-v2" data-item-index="${i}"><strong>${row.item?.icon||'🧪'} ${row.name}　×${row.count}</strong><span>${row.item?.description||'戰鬥中使用後消耗 1 個。'}</span></button>`).join('')
+        :'<div class="card small">沒有可用的戰鬥消耗品。</div>';
+    }catch(error){
+      console.error('[StudyRPG2] item menu render failed',error);
+      html=`<div class="card small bad">道具選單載入失敗：${String(error?.message||error||'未知錯誤')}</div>`;
+    }
+    const box=showSubmenu(html);if(!box)return;
+    box.querySelectorAll('[data-item-index]').forEach(b=>b.onclick=async()=>{
+      const row=items[Number(b.dataset.itemIndex)];if(!row)return;
+      hideSubmenu();
+      await engine.playerAction({kind:'item',name:row.name,icon:row.item?.icon||'🧪',stackKey:row.stackKey,effectType:row.item?.effectType||'',effectValue:Number(row.item?.effectValue)||0,effectTurns:Number(row.item?.effectTurns)||0},presenter);
+    });
+  };
+
+  overlay.querySelector('#bTargetStrip').onclick=e=>{const b=e.target.closest('[data-target]');if(b)engine.selectTarget(b.dataset.target)};
 }
 export function closeBattle(){overlay?.remove();overlay=null;engine=null;settlement=null;heroPresentationAction=null;onClose?.();onClose=null}
