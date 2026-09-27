@@ -1,6 +1,7 @@
 import { localDateString, parseLocalDate } from '../core/date.js';
 import { getFamily, getGame } from '../core/store.js';
-import { WEEKLY_WORLDS, monsterName } from './world-database.js';
+import { monsterDef } from '../battle/monster-database.js';
+import { WEEKLY_WORLDS } from './world-database.js';
 
 export function activeSemesterStartDate(dateStr=localDateString()){
   const family=getFamily(),profileId=family?.activeProfileId,starts=(family?.adventureCalendar||[]).filter(e=>e?.type==='semester_start'&&e.date&&e.date<=dateStr&&(e.targetType!=='selected'||(e.targetProfileIds||[]).includes(profileId))).slice().sort((a,b)=>(a.date+String(a.id||'')).localeCompare(b.date+String(b.id||'')));
@@ -17,6 +18,6 @@ export function dailyMonsterIndex(dateStr=localDateString()){
 }
 export function encounterForDate(dateStr=localDateString()){
   const world=worldForDate(dateStr);if(!world||world.noBattle)return null;
-  const monsterId=world.monsters[dailyMonsterIndex(dateStr)]||null;
-  return monsterId?{monsterId,name:monsterName(monsterId),world}:null;
+  const monsterId=world.monsters[dailyMonsterIndex(dateStr)]||null,def=monsterId?monsterDef(monsterId):null;
+  return monsterId?{monsterId,name:def?.name||String(monsterId).replaceAll('_',' '),world}:null;
 }
