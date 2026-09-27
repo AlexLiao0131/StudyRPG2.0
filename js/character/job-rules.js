@@ -26,9 +26,15 @@ export const BEGINNER_SKILL_JOB_WEIGHTS=Object.freeze({
   focus:Object.freeze({'獵人':1.00,'盜賊':.85,'法師':.35,'牧師':.35})
 });
 
-// 正式職業技能清單由 skill-database.js 的 formalClassSkills[className] 唯一提供。
-// 保留空物件只為相容既有 import；角色只保存實際裝備的 skill id，不再複製整份職業技能表。
-export const FORMAL_CLASS_SKILL_IDS=Object.freeze({});
+export const FORMAL_CLASS_SKILL_IDS=Object.freeze({
+  '戰士':Object.freeze(['war_heroic','war_shockwave','war_laststand','war_ragefill','war_charge','war_blade_storm','war_execute','war_bloodstrike']),
+  '法師':Object.freeze(['mage_blast','mage_missile','mage_mana_shield','mage_meditation','mage_haste','mage_blizzard','mage_burn','mage_icefire']),
+  '牧師':Object.freeze(['priest_smite','priest_lightbolt','priest_protection','priest_grace','priest_exorcism','priest_holy_prayer','priest_cleanse','priest_miracle']),
+  '獵人':Object.freeze(['hunter_trip','hunter_magic_arrow','hunter_counter','hunter_focus','hunter_explosive','hunter_hound','hunter_deadly','hunter_snipe']),
+  '盜賊':Object.freeze(['rogue_ambush','rogue_poison','rogue_evade','rogue_burst','rogue_rupture','rogue_steal','rogue_cloak','rogue_frenzy']),
+  '聖騎士':Object.freeze(['pal_crusader','pal_shock','pal_divine_shield','pal_wings','pal_blade','pal_freedom','pal_consecrate','pal_verdict']),
+  '魔劍士':Object.freeze(['sb_arcane_strike','sb_element_bolt','sb_barrier','sb_disrupt','sb_accel','sb_frost_armor','sb_firestorm','sb_element_burst'])
+});
 
 export const JOB_BATTLE_CONFIG=Object.freeze({
   combatCoreThreshold:55,
