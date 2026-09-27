@@ -1,4 +1,5 @@
 import { APP_CONFIG } from './app-config.js';
+import { V2_MONSTER_SKILLS, V2_MONSTER_SKILL_EXTENSIONS } from './v2-content-database.js';
 
 let loading=null;
 let normalizedSource=null;
@@ -16,6 +17,16 @@ function normalizeContentDatabase(source){
   if(source===normalizedSource&&normalizedDatabase)return normalizedDatabase;
 
   const monsterSkills={...(source.monsterSkills||{})};
+
+  // 2.0-only content absent from the legacy Skill DB. Never overwrites a real legacy definition.
+  for(const [id,definition] of Object.entries(V2_MONSTER_SKILLS)){
+    if(monsterSkills[id]==null)monsterSkills[id]={...definition};
+  }
+  // Fields that legacy data intentionally lacks but the 2.0 runtime needs.
+  for(const [id,extension] of Object.entries(V2_MONSTER_SKILL_EXTENSIONS)){
+    if(monsterSkills[id])monsterSkills[id]={...monsterSkills[id],...extension};
+  }
+
   for(const [id,override] of Object.entries(LEGACY_MONSTER_SKILL_OVERRIDES)){
     const original=monsterSkills[id];
     if(!original)continue;
