@@ -16,6 +16,12 @@ export function currentEquipmentContent(){
   return now.affixes&&now.database?now:null;
 }
 
+// 裝備 instance 可保留 roll 出來的 value/power，但規則欄位永遠以目前 Affix DB 為準。
+export function canonicalEquipmentAffix(affix={}){
+  const def=currentEquipmentContent()?.affixes?.[String(affix?.id||'')];
+  return def?{...affix,...def}:affix;
+}
+
 function loadScript(path,key){
   if(globalThis[key])return Promise.resolve(globalThis[key]);
   if(typeof document==='undefined')return Promise.resolve(null);
