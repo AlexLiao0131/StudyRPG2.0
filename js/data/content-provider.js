@@ -5,6 +5,8 @@ let loading=null;
 let normalizedSource=null;
 let normalizedDatabase=null;
 
+const SCRIPT_TIMEOUT_MS=6000;
+
 const LEGACY_MONSTER_SKILL_OVERRIDES=Object.freeze({
   // 1.0 Runtime 對這兩個護盾固定套用 35% 減傷，但舊 skill-database 缺少宣告欄位。
   // Migration 階段在 Provider 補成正式資料，避免 BattleEngine 再靠 skill id 判斷。
@@ -46,24 +48,49 @@ export function currentContentDatabase(){
   return normalizeContentDatabase(globalThis.STUDYRPG_SKILL_DATABASE||null);
 }
 
+function loadLegacySkillDatabase(){
+  if(globalThis.STUDYRPG_SKILL_DATABASE)return Promise.resolve(globalThis.STUDYRPG_SKILL_DATABASE);
+  if(typeof document==='undefined')return Promise.resolve(null);
+
+  return new Promise(resolve=>{
+    const selector='script[data-studyrpg-content="skill-database"]';
+    const old=document.querySelector(selector);
+
+    // 舊節點若已觸發過 load/error，再掛 listener 會永久等待。
+    // Battle 開啟時寧可移除舊節點重新載入，也不能讓 Promise 卡死。
+    if(old)old.remove();
+
+    const script=document.createElement('script');
+    script.dataset.studyrpgContent='skill-database';
+    script.src=APP_CONFIG.assetBase+'skill-database.js';
+
+    let settled=false;
+    const finish=()=>{
+      if(settled)return;
+      settled=true;
+      clearTimeout(timer);
+      resolve(globalThis.STUDYRPG_SKILL_DATABASE||null);
+    };
+
+    script.onload=finish;
+    script.onerror=finish;
+    const timer=setTimeout(()=>{
+      script.remove();
+      finish();
+    },SCRIPT_TIMEOUT_MS);
+
+    document.head.appendChild(script);
+  });
+}
+
 export async function ensureContentDatabase(){
   const ready=currentContentDatabase();
   if(ready)return ready;
   if(loading)return loading;
-  loading=new Promise(resolve=>{
-    if(typeof document==='undefined'){resolve(null);return;}
-    const old=document.querySelector('script[data-studyrpg-content="skill-database"]');
-    if(old){
-      old.addEventListener('load',()=>resolve(currentContentDatabase()),{once:true});
-      old.addEventListener('error',()=>resolve(null),{once:true});
-      return;
-    }
-    const script=document.createElement('script');
-    script.dataset.studyrpgContent='skill-database';
-    script.src=APP_CONFIG.assetBase+'skill-database.js';
-    script.onload=()=>resolve(currentContentDatabase());
-    script.onerror=()=>resolve(null);
-    document.head.appendChild(script);
-  });
+
+  loading=loadLegacySkillDatabase()
+    .then(()=>currentContentDatabase())
+    .finally(()=>{loading=null});
+
   return loading;
 }
