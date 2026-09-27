@@ -72,7 +72,9 @@ function reconstructBases(database){
   const out=new Map(equipmentBaseRows().map(base=>[base.id,clone(base)]));
   for(const row of Object.values(database?.templates||{})){
     const item=row?.itemData;if(!item?.baseId)continue;const base=out.get(item.baseId);if(!base)continue;
-    if(item.visualId)base.visualId=item.visualId;if(item.visual)base.visual=clone(item.visual);if(item.inventoryIcon)base.inventoryIcon=item.inventoryIcon;
+    if(item.visualId)base.visualId=item.visualId;
+    if(item.visual)base.visual=clone(item.visual);
+    if(item.inventoryIcon)base.inventoryIcon=item.inventoryIcon;
   }
   return [...out.values()];
 }
@@ -92,16 +94,51 @@ function randomEquipment({database,affixes,rarityId,week=1,floor=0,cycle=1,heroC
   const rarity=RARITY[rarityId]||RARITY.common,bases=reconstructBases(database);if(!bases.length)return null;
   const tierNumber=source==='replay'?0:source==='tower'?Math.max(0,Math.floor(Math.max(0,floor)/15)+cycle-1):Math.max(0,Math.floor((Math.max(1,week)-1)/5)+Math.floor(Math.max(0,floor)/15)+cycle-1);
   const tier=`T${tierNumber}`,tries=14,weights=CLASS_WEIGHTS[heroClass]||CLASS_WEIGHTS['初心者'];let best=null,bestScore=-Infinity;
+
   for(let attempt=0;attempt<tries;attempt++){
-    const base=pick(bases,random);if(!base)continue;const stats={...base.stats},pool=Object.values(affixes||{}).filter(a=>(a.slots||[]).includes(base.slot)).map(clone),chosen=[];
-    let count=rarity.affixCount+Math.min(2,tierNumber);if(rarityId==='epic'&&count===3&&random()<.35)count=4;
-    while(chosen.length<count&&pool.length){const idx=Math.floor(random()*pool.length),a=pool.splice(idx,1)[0];if(a.kind==='stat'){a.value=rollValue(a,rarity.powerMult*(1+tierNumber*.18),random);stats[a.stat]=(Number(stats[a.stat])||0)+a.value;a.power=a.value*Number(a.powerPerUnit||1)}chosen.push(a)}
-    const item={id:uid('equipment_instance'),generated:true,tier,rarity:rarity.id,rarityName:rarity.name,name:'',icon:base.icon,category:'equipment',equipSlot:base.slot,baseId:base.id,visualId:base.visualId,visual:clone(base.visual),inventoryIcon:base.inventoryIcon,stats,affixes:chosen,setId:null,uniqueId:null,price:0,dailyLimit:1,active:false,enhancementLevel:0,createdAt:new Date().toISOString()};
-    item.name=generatedName(base,rarity,chosen,tier);item.powerScore=equipmentPowerScore(item);item.unenhancedStats={...stats};item.baseStatsForEnhancement={...stats};
-    let score=item.powerScore;for(const[k,v]of Object.entries(stats))score+=(weights[k]||.45)*Math.abs(Number(v)||0);for(const a of chosen){if(a.stat)score+=(weights[a.stat]||.45)*2;if(a.kind==='trigger'||a.kind==='summon')score+=5}if(chosen.some(a=>a.stat==='attack')&&chosen.some(a=>a.stat==='magicAttack'))score-=4;
+    const base=pick(bases,random);if(!base)continue;
+    const stats={...base.stats};
+    // IMPORTANT: only canonical 1.0 Affix DB content is present in `affixes`.
+    const pool=Object.values(affixes||{}).filter(a=>(a.slots||[]).includes(base.slot)).map(clone),chosen=[];
+    let count=rarity.affixCount+Math.min(2,tierNumber);
+    if(rarityId==='epic'&&count===3&&random()<.35)count=4;
+
+    while(chosen.length<count&&pool.length){
+      const idx=Math.floor(random()*pool.length),a=pool.splice(idx,1)[0];
+      if(a.kind==='stat'){
+        a.value=rollValue(a,rarity.powerMult*(1+tierNumber*.18),random);
+        stats[a.stat]=(Number(stats[a.stat])||0)+a.value;
+        a.power=a.value*Number(a.powerPerUnit||1);
+      }
+      chosen.push(a);
+    }
+
+    const item={
+      id:uid('equipment_instance'),generated:true,tier,rarity:rarity.id,rarityName:rarity.name,name:'',
+      icon:base.icon,category:'equipment',equipSlot:base.slot,baseId:base.id,visualId:base.visualId,
+      visual:clone(base.visual),inventoryIcon:base.inventoryIcon,stats,affixes:chosen,setId:null,uniqueId:null,
+      price:0,dailyLimit:1,active:false,enhancementLevel:0,createdAt:new Date().toISOString()
+    };
+    item.name=generatedName(base,rarity,chosen,tier);
+    item.powerScore=equipmentPowerScore(item);
+    item.unenhancedStats={...stats};
+    item.baseStatsForEnhancement={...stats};
+
+    let score=item.powerScore;
+    for(const[k,v]of Object.entries(stats))score+=(weights[k]||.45)*Math.abs(Number(v)||0);
+    for(const a of chosen){
+      if(a.stat)score+=(weights[a.stat]||.45)*2;
+      if(a.kind==='trigger'||a.kind==='summon')score+=5;
+    }
+    if(chosen.some(a=>a.stat==='attack')&&chosen.some(a=>a.stat==='magicAttack'))score-=4;
     if(score>bestScore){best=item;bestScore=score}
   }
-  if(best){best.smartGenerated=true;best.generationContext={week,floor,cycle,heroClass,formulaVersion:database?.formulaVersion||''};best.description=`${best.tier} ${best.rarityName}｜裝備評估 ${best.powerScore}｜${best.affixes.map(a=>a.text||a.name).join('、')}｜智慧適配：${heroClass}・第${week}週`}
+
+  if(best){
+    best.smartGenerated=true;
+    best.generationContext={week,floor,cycle,heroClass,formulaVersion:database?.formulaVersion||''};
+    best.description=`${best.tier} ${best.rarityName}｜裝備評估 ${best.powerScore}｜${best.affixes.map(a=>a.text||a.name).join('、')}｜智慧適配：${heroClass}・第${week}週`;
+  }
   return best;
 }
 
@@ -110,30 +147,115 @@ function templateEquipment({database,source,rarityId,week=1,random=Math.random})
     const item=row?.itemData||{};
     return row?.enabled!==false&&item.rarity===rarityId&&(row.sources||[]).includes(source)&&week>=Math.max(1,Number(row.minWeek)||1)&&week<=Math.max(1,Number(row.maxWeek)||999);
   });
-  const total=rows.reduce((n,row)=>n+Math.max(0,Number(row.weight??10)),0);if(!rows.length||total<=0)return null;
-  let r=random()*total,row=rows.at(-1);for(const x of rows){r-=Math.max(0,Number(x.weight??10));if(r<=0){row=x;break}}
-  const item=clone(row.itemData);item.id=uid('equipment_instance');item.enhancementLevel=0;item.unenhancedStats={...(item.stats||{})};item.baseStatsForEnhancement={...(item.stats||{})};item.createdAt=new Date().toISOString();item.powerScore=equipmentPowerScore(item);item.templateId=row.templateId||item.templateId||null;return item;
+  const total=rows.reduce((n,row)=>n+Math.max(0,Number(row.weight??10)),0);
+  if(!rows.length||total<=0)return null;
+
+  let r=random()*total,row=rows.at(-1);
+  for(const x of rows){
+    r-=Math.max(0,Number(x.weight??10));
+    if(r<=0){row=x;break}
+  }
+
+  const item=clone(row.itemData);
+  item.id=uid('equipment_instance');
+  item.enhancementLevel=0;
+  item.unenhancedStats={...(item.stats||{})};
+  item.baseStatsForEnhancement={...(item.stats||{})};
+  item.createdAt=new Date().toISOString();
+  item.powerScore=equipmentPowerScore(item);
+  item.templateId=row.templateId||item.templateId||null;
+  return item;
 }
 
-function uniqueEquipment({database,affixes,legacyUnique={},floor=1,random=Math.random}){
-  const orange=database?.orangeDrop||{},chance=floor%5===0?Number(orange.bossFloorChance||0):Number(orange.normalFloorChance||0);if(chance<=0||random()>=chance)return null;
-  const defs={...(database?.uniqueEquipment||{}),...(legacyUnique||{})},eligible=Object.entries(defs).filter(([,def])=>Number(def?.minFloor||1)<=floor);if(!eligible.length)return null;
-  const weighted=[];for(const[id,def]of eligible)for(let i=0;i<Math.max(1,Number(def.weight)||1);i++)weighted.push([id,def]);const[uniqueId,def]=pick(weighted,random)||[];if(!def)return null;
-  const bases=reconstructBases(database),base=bases.find(x=>x.id===def.baseId);if(!base)return null;const stats={...base.stats,...(def.stats||{})},chosen=(def.affixIds||[]).map(id=>affixes?.[id]).filter(Boolean).map(clone);
-  for(const a of chosen)if(a.kind==='stat'){const value=Number(def.affixValues?.[a.id]??a.max??a.min??0);a.value=value;a.power=value*Number(a.powerPerUnit||1);stats[a.stat]=(Number(stats[a.stat])||0)+value}
-  const item={id:uid('unique_equipment'),generated:true,tier:def.tier||'T0',rarity:'legendary',rarityName:'傳說',name:`🟠 ${def.name}`,icon:def.icon||base.icon,category:'equipment',equipSlot:base.slot,baseId:base.id,visualId:def.visualId||base.visualId,visual:clone(def.visual||base.visual||{}),stats,affixes:chosen,setId:null,uniqueId,price:0,dailyLimit:1,active:false,enhancementLevel:0,createdAt:new Date().toISOString(),description:def.description||''};item.powerScore=equipmentPowerScore(item);item.unenhancedStats={...stats};item.baseStatsForEnhancement={...stats};return item;
+function uniqueEquipment({database,affixes,floor=1,random=Math.random}){
+  const orange=database?.orangeDrop||{};
+  const chance=floor%5===0?Number(orange.bossFloorChance||0):Number(orange.normalFloorChance||0);
+  if(chance<=0||random()>=chance)return null;
+
+  // Canonical source: Equipment DB only. No save-state / parallel unique definition pool.
+  const defs=database?.uniqueEquipment||{};
+  const eligible=Object.entries(defs).filter(([,def])=>Number(def?.minFloor||1)<=floor);
+  if(!eligible.length)return null;
+
+  const weighted=[];
+  for(const[id,def]of eligible){
+    for(let i=0;i<Math.max(1,Number(def.weight)||1);i++)weighted.push([id,def]);
+  }
+  const[uniqueId,def]=pick(weighted,random)||[];
+  if(!def)return null;
+
+  const bases=reconstructBases(database),base=bases.find(x=>x.id===def.baseId);
+  if(!base)return null;
+  const stats={...base.stats,...(def.stats||{})};
+  const chosen=(def.affixIds||[]).map(id=>affixes?.[id]).filter(Boolean).map(clone);
+
+  for(const a of chosen){
+    if(a.kind==='stat'){
+      const value=Number(def.affixValues?.[a.id]??a.max??a.min??0);
+      a.value=value;
+      a.power=value*Number(a.powerPerUnit||1);
+      stats[a.stat]=(Number(stats[a.stat])||0)+value;
+    }
+  }
+
+  const item={
+    id:uid('unique_equipment'),generated:true,tier:def.tier||'T0',rarity:'legendary',rarityName:'傳說',
+    name:`🟠 ${def.name}`,icon:def.icon||base.icon,category:'equipment',equipSlot:base.slot,baseId:base.id,
+    visualId:def.visualId||base.visualId,visual:clone(def.visual||base.visual||{}),stats,affixes:chosen,
+    setId:null,uniqueId,price:0,dailyLimit:1,active:false,enhancementLevel:0,
+    createdAt:new Date().toISOString(),description:def.description||''
+  };
+  item.powerScore=equipmentPowerScore(item);
+  item.unenhancedStats={...stats};
+  item.baseStatsForEnhancement={...stats};
+  return item;
 }
 
-export function rollEquipmentDrop({source='weekday',week=1,floor=0,cycle=1,heroClass='初心者',forcedRarity=null,uniqueEquipmentDefinitions={},random=Math.random}={}){
-  const content=currentEquipmentContent();if(!content?.database||!content?.affixes)return null;
-  if(source==='tower'&&!forcedRarity){const orange=uniqueEquipment({database:content.database,affixes:content.affixes,legacyUnique:uniqueEquipmentDefinitions,floor:Math.max(1,floor),random});if(orange)return{type:'equipment',source,rarity:'legendary',item:orange,label:`🟠 ${orange.name}｜傳說獨特裝備`,unique:true}}
-  const rarityId=forcedRarity||chooseRarity(source,content.database,random);if(!rarityId||rarityId==='legendary')return null;
-  const item=templateEquipment({database:content.database,source,rarityId,week,random})||randomEquipment({database:content.database,affixes:content.affixes,rarityId,week,floor,cycle,heroClass,source,random});if(!item)return null;
-  return{type:'equipment',source,rarity:rarityId,item,label:`${RARITY[rarityId]?.icon||''} ${item.name}`.trim(),unique:false};
+export function rollEquipmentDrop({source='weekday',week=1,floor=0,cycle=1,heroClass='初心者',forcedRarity=null,random=Math.random}={}){
+  const content=currentEquipmentContent();
+  if(!content?.database||!content?.affixes)return null;
+
+  if(source==='tower'&&!forcedRarity){
+    const orange=uniqueEquipment({
+      database:content.database,
+      affixes:content.affixes,
+      floor:Math.max(1,floor),
+      random
+    });
+    if(orange)return{
+      type:'equipment',source,rarity:'legendary',item:orange,
+      label:`🟠 ${orange.name}｜傳說獨特裝備`,unique:true
+    };
+  }
+
+  const rarityId=forcedRarity||chooseRarity(source,content.database,random);
+  if(!rarityId||rarityId==='legendary')return null;
+
+  const item=templateEquipment({database:content.database,source,rarityId,week,random})
+    ||randomEquipment({database:content.database,affixes:content.affixes,rarityId,week,floor,cycle,heroClass,source,random});
+  if(!item)return null;
+
+  return{
+    type:'equipment',source,rarity:rarityId,item,
+    label:`${RARITY[rarityId]?.icon||''} ${item.name}`.trim(),unique:false
+  };
 }
 
 export function grantEquipmentDrop(game,drop,{dateStr='',source=''}={}){
-  if(!game||!drop?.item)return null;game.inventory=Array.isArray(game.inventory)?game.inventory:[];const item=clone(drop.item),inv={id:uid('inv'),itemId:item.id,itemData:item,name:item.name,status:'unused',boughtDate:dateStr||new Date().toISOString().slice(0,10),source:source||drop.source||'dungeon',category:'equipment',equipSlot:item.equipSlot,affixes:clone(item.affixes||[]),tier:item.tier,generated:true,templateId:item.templateId||null,uniqueId:item.uniqueId||null,locked:false};game.inventory.push(inv);return{...drop,inventoryId:inv.id,itemData:item};
+  if(!game||!drop?.item)return null;
+  game.inventory=Array.isArray(game.inventory)?game.inventory:[];
+  const item=clone(drop.item);
+  const inv={
+    id:uid('inv'),itemId:item.id,itemData:item,name:item.name,status:'unused',
+    boughtDate:dateStr||new Date().toISOString().slice(0,10),
+    source:source||drop.source||'dungeon',category:'equipment',equipSlot:item.equipSlot,
+    affixes:clone(item.affixes||[]),tier:item.tier,generated:true,
+    templateId:item.templateId||null,uniqueId:item.uniqueId||null,locked:false
+  };
+  game.inventory.push(inv);
+  return{...drop,inventoryId:inv.id,itemData:item};
 }
 
-export function equipmentDropLabel(drop){return drop?.label||drop?.item?.name||''}
+export function equipmentDropLabel(drop){
+  return drop?.label||drop?.item?.name||'';
+}
