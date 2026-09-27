@@ -1,16 +1,22 @@
 import { APP_CONFIG } from './app-config.js';
-import { LEGACY_MONSTER_SKILL_NORMALIZATION } from './content-normalization-database.js';
 
 let loading=null;
 let normalizedSource=null;
 let normalizedDatabase=null;
+
+const LEGACY_MONSTER_SKILL_OVERRIDES=Object.freeze({
+  // 1.0 Runtime 對這兩個護盾固定套用 35% 減傷，但舊 skill-database 缺少宣告欄位。
+  // Migration 階段在 Provider 補成正式資料，避免 BattleEngine 再靠 skill id 判斷。
+  golden_shield:{damageTakenMultiplier:.65,duration:2},
+  mana_shield:{damageTakenMultiplier:.65,duration:2}
+});
 
 function normalizeContentDatabase(source){
   if(!source)return null;
   if(source===normalizedSource&&normalizedDatabase)return normalizedDatabase;
 
   const monsterSkills={...(source.monsterSkills||{})};
-  for(const [id,override] of Object.entries(LEGACY_MONSTER_SKILL_NORMALIZATION)){
+  for(const [id,override] of Object.entries(LEGACY_MONSTER_SKILL_OVERRIDES)){
     const original=monsterSkills[id];
     if(!original)continue;
     const normalized={...original};
