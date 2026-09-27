@@ -1,5 +1,6 @@
 import { APP_CONFIG } from './app-config.js';
 import { V2_MONSTER_SKILLS, V2_MONSTER_SKILL_EXTENSIONS } from './v2-content-database.js';
+import { loadLegacyDatabaseScript } from './legacy-script-loader.js';
 
 let loading=null;
 let normalizedSource=null;
@@ -42,33 +43,12 @@ export function currentContentDatabase(){
   return normalizeContentDatabase(globalThis.STUDYRPG_SKILL_DATABASE||null);
 }
 
-function loadSkillDatabase(){
-  if(globalThis.STUDYRPG_SKILL_DATABASE)return Promise.resolve(globalThis.STUDYRPG_SKILL_DATABASE);
-  if(typeof document==='undefined')return Promise.reject(new Error('目前環境無法載入 Skill DB'));
-
-  return new Promise((resolve,reject)=>{
-    const selector='script[data-studyrpg-content="skill-database"]';
-    const old=document.querySelector(selector);
-
-    // 若節點存在但 DB 不存在，代表它的 load/error 已經發生過。
-    // 不能再掛 listener 等舊事件，直接移除並重新正式載入。
-    if(old)old.remove();
-
-    const script=document.createElement('script');
-    script.dataset.studyrpgContent='skill-database';
-    script.src=APP_CONFIG.assetBase+'skill-database.js';
-
-    script.onload=()=>{
-      const db=globalThis.STUDYRPG_SKILL_DATABASE||null;
-      if(db)resolve(db);
-      else reject(new Error('Skill DB 已載入，但 STUDYRPG_SKILL_DATABASE 不存在'));
-    };
-    script.onerror=()=>{
-      script.remove();
-      reject(new Error('Skill DB 載入失敗'));
-    };
-
-    document.head.appendChild(script);
+async function loadSkillDatabase(){
+  if(globalThis.STUDYRPG_SKILL_DATABASE)return globalThis.STUDYRPG_SKILL_DATABASE;
+  return loadLegacyDatabaseScript({
+    url:APP_CONFIG.assetBase+'skill-database.js',
+    globalKey:'STUDYRPG_SKILL_DATABASE',
+    label:'Skill DB'
   });
 }
 
