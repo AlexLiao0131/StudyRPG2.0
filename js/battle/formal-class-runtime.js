@@ -245,11 +245,6 @@ export function mitigateIncomingHeroDamage(engine,result,action){
   const hero=engine.state.hero,f=engine.state.formal,type=action?.damageType||action?.type||'physical';
   if(hero.statuses?.some(s=>s.mods?.immuneDamage)){result.damage=0;result.type='block';return result}
   if(type!=='physical'&&hero.statuses?.some(s=>s.mods?.magicImmune)){result.damage=0;result.type='block';return result}
-  if(!action?.bypassHound&&f.cls==='獵人'&&f.hound?.alive&&f.hound.hp>0&&Math.random()<.35){
-    const dmg=Math.max(0,Math.round(result.damage));f.hound.hp=Math.max(0,f.hound.hp-dmg);
-    if(f.hound.hp<=0){f.hound.alive=false;engine.log(`💀 獵犬替主人承受 ${dmg} 傷害後倒下。`)}else engine.log(`🐕 獵犬替主人承受 ${dmg} 傷害（${Math.round(f.hound.hp)}/${f.hound.maxHp}）。`);
-    result.damage=0;result.type='block';return result;
-  }
   const mana=hero.statuses?.find(s=>Number(s.mods?.manaShield)>0);
   if(mana&&f.maxMp>0&&f.mp>0){const wanted=Math.max(0,Math.round(result.damage*Number(mana.mods.manaShield))),paid=Math.min(wanted,Math.floor(f.mp));f.mp-=paid;result.damage=Math.max(0,result.damage-paid);if(paid)engine.log(`🔷 魔力護盾消耗 ${paid} MP 抵消傷害。`)}
   const grace=hero.statuses?.find(s=>s.type==='grace_shield'&&Number(s.shieldHp)>0);
@@ -314,7 +309,7 @@ export async function formalAllyTurn(engine,unit,presenter){
   const target=alive[Math.floor(Math.random()*alive.length)],r=resolveAttack(unit,target,{type:'physical',source:'attack',multiplier:1,canParry:false});
   await engine.present(presenter,{type:'attack',side:'hero',result:r,action:{type:'physical',name:'獵犬撕咬'},attackerName:'獵犬',attackerUid:'hound',targetName:target.name,targetUid:target.uid});
   if(r.damage){
-    const dealt=engine.applyDamageToEnemy(target,Math.max(r.damage,Math.max(2,Math.round(unit.attack*.20))));
+    const dealt=engine.applyDamageToEnemy(target,r.damage);
     if(target.hp>0)addStatus(target,{type:'bleed',name:'🩸 流血',turns:3,power:Math.max(1,Math.round(unit.attack*.15)),effectType:'debuff',mods:{}});
     engine.log(`🐕 獵犬撕咬 ${target.name}，造成 ${dealt} 傷害並刷新3回合流血！`);
   }else engine.log(`🐕 獵犬撕咬被 ${target.name} 閃開了。`);
@@ -383,6 +378,15 @@ export async function executeFormalSkill(engine,skill,presenter){
       if(target.hp/target.maxHp<=threshold&&!target.isBoss){engine.applyDamageToEnemy(target,target.hp);engine.log(`☠️ ${Math.round(rage)}怒氣斬殺成功！`);return{ok:true}}
       return hit(engine,target,skill,presenter,{multiplier:1+rage/100,type:'physical',source:'attack'});
     }
+    if(skill.id==='war_charge'){
+      const r=await hit(engine,target,skill,presenter,{multiplier:1.2,type:'physical',source:'attack'});
+      if(r?.damage){
+        simpleStatus(engine,target,skill.status||{type:'stun',turns:1,bossChance:.65},skill.name);
+        addStatus(target,{type:'armor_break',name:'破甲',turns:2,effectType:'debuff',mods:{defense:-Number(target.defense||0)*.25}});
+        engine.log(`🛡️ ${target.name}破甲2回合（DEF -25%）。`);
+      }
+      return r;
+    }
     if(skill.id==='mage_meditation'){addStatus(state.hero,{type:'mage_meditation',name:'魔力冥想',turns:3,effectType:'buff',mods:{hit:.15,mpRegenPct:.15}});return{ok:true}}
     if(skill.id==='mage_icefire'){
       let m=2.3,bonus=0,ts=target.statuses||[];if(ts.some(s=>s.type==='burn'))bonus+=.2;if(ts.some(s=>s.type==='freeze'))bonus+=.2;
@@ -398,7 +402,7 @@ export async function executeFormalSkill(engine,skill,presenter){
     }
     if(skill.id==='priest_miracle'){f.miracle=true;addStatus(state.hero,{type:'miracle',name:'🌟 奇蹟',turns:999,effectType:'buff',mods:{},unstealable:true});return{ok:true}}
     if(skill.id==='hunter_hound'){
-      const h=state.hero;f.hound={uid:'hunter_hound',name:'獵犬',side:'ally',alive:true,statuses:[],summonRound:state.round,hp:Math.max(1,Math.round(h.maxHp*.45)),maxHp:Math.max(1,Math.round(h.maxHp*.45)),attack:h.attack*.85,magicAttack:h.magicAttack*.25,defense:h.defense*.70,magicDefense:h.magicDefense*.60,speed:h.speed*.90,evade:h.evade*.5,parry:0,block:0,statusRes:h.statusRes*.75,resist:{...(h.resist||{})}};
+      const h=state.hero;f.hound={uid:'hunter_hound',name:'獵犬',side:'ally',independentUnit:true,alive:true,statuses:[],summonRound:state.round,hp:Math.max(1,Math.round(h.maxHp*.45)),maxHp:Math.max(1,Math.round(h.maxHp*.45)),attack:h.attack*.85,magicAttack:h.magicAttack*.25,defense:h.defense*.70,magicDefense:h.magicDefense*.60,speed:h.speed*.90,evade:h.evade*.5,parry:0,block:0,statusRes:h.statusRes*.75,elementalBaseRes:h.elementalBaseRes||0,resist:{...(h.resist||{})}};
       engine.log(`🐕 獵犬加入戰鬥！HP ${f.hound.hp}｜ATK ${Math.round(f.hound.attack)}｜DEF ${Math.round(f.hound.defense)}；從下一回合開始行動。`);return{ok:true}
     }
     if(skill.id==='hunter_deadly'){
