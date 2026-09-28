@@ -1,15 +1,17 @@
 import { getFamily, getGame, update } from '../core/store.js';
+import { activeSemesterStartDate } from '../calendar/calendar-service.js';
 
 const uid=()=>`tt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
 const slug=v=>String(v||'').trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g,'_').replace(/^_+|_+$/g,'');
 const result=(ok,message,data={})=>({ok,message,...data});
 function invalidateAll(){for(const p of getFamily().profiles||[])p.data.examCompletionTargets={}}
 
-export function saveSemesterSettings({startDate,endDate,schoolWeekdays=[]}={}){
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(startDate||''))||!/^\d{4}-\d{2}-\d{2}$/.test(String(endDate||'')))return result(false,'請填正確的學期開始與結束日期。');
-  if(endDate<startDate)return result(false,'學期結束日期不能早於開始日期。');
+export function saveSemesterSettings({endDate,schoolWeekdays=[]}={}){
+  const startDate=activeSemesterStartDate();
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(endDate||'')))return result(false,'請填正確的學期結束日期。');
+  if(startDate&&endDate<startDate)return result(false,'學期結束日期不能早於行事曆的學期開始日。');
   const days=[...new Set((schoolWeekdays||[]).map(Number).filter(n=>n>=0&&n<=6))];if(!days.length)return result(false,'至少要選一個上課日。');
-  update(()=>{const g=getGame();g.semester.startDate=startDate;g.semester.endDate=endDate;g.semester.schoolWeekdays=days;invalidateAll()});return result(true,'學期設定已儲存。');
+  update(()=>{const g=getGame();g.semester.endDate=endDate;g.semester.schoolWeekdays=days;invalidateAll()});return result(true,'學期設定已儲存。');
 }
 export function addExamSubject(name,id=''){
   name=String(name||'').trim();if(!name)return result(false,'請輸入科目名稱。');let subject=null;
