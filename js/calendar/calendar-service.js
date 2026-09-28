@@ -46,6 +46,33 @@ export function visibleCalendar(profileId=getFamily().activeProfileId){
     .sort((a,b)=>(String(a.date||'')+String(a.startTime||'')).localeCompare(String(b.date||'')+String(b.startTime||'')));
 }
 
+// Canonical semester boundary source for 2.0.
+// The current semester starts only come from adventureCalendar semester_start events.
+export function semesterStartEvents(profileId=getFamily().activeProfileId){
+  return visibleCalendar(profileId).filter(e=>e?.type==='semester_start'&&validDate(e.date));
+}
+
+export function semesterWindowForDate(dateStr=localDateString(),profileId=getFamily().activeProfileId){
+  const date=validDate(dateStr)?String(dateStr):localDateString(),starts=semesterStartEvents(profileId);
+  let index=-1;
+  for(let i=0;i<starts.length;i++){
+    if(starts[i].date<=date)index=i;
+    else break;
+  }
+  const event=index>=0?starts[index]:null;
+  const nextEvent=index>=0?(starts[index+1]||null):(starts[0]||null);
+  return{
+    event,
+    startDate:event?.date||'',
+    nextEvent,
+    nextStartDate:nextEvent?.date||''
+  };
+}
+
+export function activeSemesterStartDate(dateStr=localDateString(),profileId=getFamily().activeProfileId){
+  return semesterWindowForDate(dateStr,profileId).startDate||String(dateStr||localDateString());
+}
+
 export function calendarEventById(id){
   return (getFamily().adventureCalendar||[]).find(e=>String(e.id)===String(id))||null;
 }
