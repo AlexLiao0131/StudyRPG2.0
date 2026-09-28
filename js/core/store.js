@@ -7,6 +7,55 @@ const listeners=new Set();
 const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
 const arr=v=>Array.isArray(v)?clone(v):[];
 const obj=v=>v&&typeof v==='object'&&!Array.isArray(v)?clone(v):{};
+const validDate=v=>/^\d{4}-\d{2}-\d{2}$/.test(String(v||''));
+
+function normalizeCampaignProgress(raw={},fallback={}){
+  const out={...obj(fallback),...obj(raw)};
+  delete out.semesterStartDate;
+  delete out.lastAppliedSemesterEventDate;
+  delete out.previousSemesterStartDate;
+  out.phaseHistory=obj(out.phaseHistory);
+  return out;
+}
+
+function semesterStartEvent(date,{targetType='all',targetProfileIds=[],suffix=''}={}){
+  return{
+    id:`migrated_semester_start_${String(date).replaceAll('-','')}${suffix?`_${suffix}`:''}`,
+    date:String(date),type:'semester_start',name:'學期冒險開始（資料轉換）',allDay:true,startTime:'',endTime:'',note:'',reminderMinutes:0,
+    targetType,targetProfileIds:targetType==='selected'?[...targetProfileIds]:[],requireComplete:false,completedBy:{},creatorRole:'system',creatorProfileId:'system'
+  };
+}
+
+function normalizeAdventureCalendar(rawFamily={},fallbackFamily={}){
+  const calendar=Array.isArray(rawFamily.adventureCalendar)?arr(rawFamily.adventureCalendar):[];
+  if(calendar.some(e=>e?.type==='semester_start'&&validDate(e.date)))return calendar;
+
+  const rawProfiles=Array.isArray(rawFamily.profiles)?rawFamily.profiles:[],byDate=new Map();
+  rawProfiles.forEach((p,i)=>{
+    const date=String(p?.data?.semester?.startDate||'');if(!validDate(date))return;
+    const id=String(p?.id||`hero_${i+1}`);if(!byDate.has(date))byDate.set(date,[]);byDate.get(date).push(id);
+  });
+  if(byDate.size){
+    let n=0;
+    for(const [date,ids] of byDate){
+      const all=ids.length===rawProfiles.length;
+      calendar.push(semesterStartEvent(date,{targetType:all?'all':'selected',targetProfileIds:ids,suffix:String(++n)}));
+    }
+    return calendar;
+  }
+
+  const fallbackStart=(fallbackFamily.adventureCalendar||[]).find(e=>e?.type==='semester_start'&&validDate(e.date));
+  if(fallbackStart)calendar.push(clone(fallbackStart));
+  return calendar;
+}
+
+function appendLegacyGameSemesterStart(calendar,rawGame,profileId){
+  const out=arr(calendar),date=String(rawGame?.semester?.startDate||'');if(!validDate(date))return out;
+  const visible=e=>e?.targetType!=='selected'||(e?.targetProfileIds||[]).includes(profileId);
+  if(out.some(e=>e?.type==='semester_start'&&e.date===date&&visible(e)))return out;
+  out.push(semesterStartEvent(date,{targetType:'selected',targetProfileIds:[profileId],suffix:String(profileId||'profile')}));
+  return out;
+}
 
 function normalizeHero(raw={},fallback={}){
   const stats=raw.stats&&typeof raw.stats==='object'?raw.stats:{};
@@ -28,9 +77,9 @@ function normalizeGame(raw={},fallback={}){
   const sem=raw.semester&&typeof raw.semester==='object'?raw.semester:{},settings=raw.settings&&typeof raw.settings==='object'?raw.settings:{};
   return {
     ...fallback,hero:normalizeHero(raw.hero||{},fallback.hero||{}),
-    semester:{...fallback.semester,startDate:String(sem.startDate||fallback.semester?.startDate||''),endDate:String(sem.endDate||fallback.semester?.endDate||''),schoolWeekdays:Array.isArray(sem.schoolWeekdays)?sem.schoolWeekdays.map(Number):clone(fallback.semester?.schoolWeekdays||[1,2,3,4,5]),worldState:String(sem.worldState||fallback.semester?.worldState||'normal'),midtermResult:String(sem.midtermResult||fallback.semester?.midtermResult||'')},
+    semester:{...fallback.semester,endDate:String(sem.endDate||fallback.semester?.endDate||''),schoolWeekdays:Array.isArray(sem.schoolWeekdays)?sem.schoolWeekdays.map(Number):clone(fallback.semester?.schoolWeekdays||[1,2,3,4,5]),worldState:String(sem.worldState||fallback.semester?.worldState||'normal'),midtermResult:String(sem.midtermResult||fallback.semester?.midtermResult||'')},
     tasks:arr(raw.tasks),taskRecords:arr(raw.taskRecords),activeTasks:obj(raw.activeTasks),learningProgress:arr(raw.learningProgress),
-    inventory,inventoryTombstones:tombstones,shopItems:arr(raw.shopItems),lotteryPool:arr(raw.lotteryPool),lotteryCoinLedger:obj(raw.lotteryCoinLedger),assetAudit:obj(raw.assetAudit),couponRequests:arr(raw.couponRequests),battleRecords:arr(raw.battleRecords),gmAudit:arr(raw.gmAudit),semesterArchives:arr(raw.semesterArchives),campaignProgress:obj(raw.campaignProgress),
+    inventory,inventoryTombstones:tombstones,shopItems:arr(raw.shopItems),lotteryPool:arr(raw.lotteryPool),lotteryCoinLedger:obj(raw.lotteryCoinLedger),assetAudit:obj(raw.assetAudit),couponRequests:arr(raw.couponRequests),battleRecords:arr(raw.battleRecords),gmAudit:arr(raw.gmAudit),semesterArchives:arr(raw.semesterArchives),campaignProgress:normalizeCampaignProgress(raw.campaignProgress,fallback.campaignProgress),
     storyFlags:obj(raw.storyFlags),holidayTower:obj(raw.holidayTower),balanceSettings:{...obj(fallback.balanceSettings),...obj(raw.balanceSettings)},semesterGearBaseline:clone(raw.semesterGearBaseline||null),uniqueEquipmentDefinitions:obj(raw.uniqueEquipmentDefinitions),
     social:{friends:arr(raw.social?.friends),inbox:arr(raw.social?.inbox)},
     settings:{parentPinHash:String(settings.parentPinHash||''),cloud:obj(settings.cloud),familyAccess:obj(settings.familyAccess||{enabled:true}),holidayTower:obj(settings.holidayTower||{dailyLimit:3})},
@@ -51,7 +100,7 @@ function normalize(raw){
       activeProfileId:profiles.some(p=>p.id===active)?active:profiles[0].id,profiles,
       examSubjects:Array.isArray(raw.family.examSubjects)&&raw.family.examSubjects.length?arr(raw.family.examSubjects):clone(fallback.family.examSubjects),
       schoolTimetable:Array.isArray(raw.family.schoolTimetable)?arr(raw.family.schoolTimetable):clone(fallback.family.schoolTimetable),
-      adventureCalendar:Array.isArray(raw.family.adventureCalendar)?arr(raw.family.adventureCalendar):clone(fallback.family.adventureCalendar),
+      adventureCalendar:normalizeAdventureCalendar(raw.family,fallback.family),
       access:obj(raw.family.access),legacySeasonId:String(raw.family.legacySeasonId||APP_CONFIG.legacySeasonId)
     }
   };
@@ -115,7 +164,7 @@ function mergeReadonlyGame(local={},remote={}){
     semesterArchives:mergeRows(local.semesterArchives,remote.semesterArchives),
     lotteryCoinLedger:deepMerge(remote.lotteryCoinLedger,local.lotteryCoinLedger),
     assetAudit:deepMerge(remote.assetAudit,local.assetAudit),
-    campaignProgress:deepMerge(remote.campaignProgress,local.campaignProgress),
+    campaignProgress:normalizeCampaignProgress(deepMerge(remote.campaignProgress,local.campaignProgress)),
     storyFlags:deepMerge(remote.storyFlags,local.storyFlags),
     holidayTower:deepMerge(remote.holidayTower,local.holidayTower),
     balanceSettings:deepMerge(remote.balanceSettings,local.balanceSettings),
@@ -167,7 +216,7 @@ export function applyReadonlyLegacyCloudPayload(payload,meta={}){
   if(payload.familyData?.profiles?.length)incomingFamily=migrateLegacyFamilySnapshot(payload.familyData);
   else if(payload.gameData?.hero){
     const game=migrateLegacyGameSnapshot(payload.gameData),id=String(payload.profileId||state?.family?.activeProfileId||'hero_1');
-    incomingFamily={activeProfileId:id,profiles:[{id,label:game.hero?.name||'勇者',data:game}],examSubjects:state.family.examSubjects,schoolTimetable:state.family.schoolTimetable,adventureCalendar:state.family.adventureCalendar,access:{},legacySeasonId:String(meta.seasonId||APP_CONFIG.legacySeasonId)};
+    incomingFamily={activeProfileId:id,profiles:[{id,label:game.hero?.name||'勇者',data:game}],examSubjects:state.family.examSubjects,schoolTimetable:state.family.schoolTimetable,adventureCalendar:appendLegacyGameSemesterStart(state.family.adventureCalendar,payload.gameData,id),access:{},legacySeasonId:String(meta.seasonId||APP_CONFIG.legacySeasonId)};
   }else return false;
   state.family=mergeReadonlyFamily(state.family,incomingFamily);
   state.source='1.0-firebase-readonly';

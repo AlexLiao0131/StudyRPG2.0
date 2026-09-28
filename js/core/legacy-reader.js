@@ -6,6 +6,15 @@ function safeParse(raw){try{return JSON.parse(raw)}catch{return null}}
 function array(v){return Array.isArray(v)?clone(v):[]}
 function object(v){return v&&typeof v==='object'&&!Array.isArray(v)?clone(v):{}}
 const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+const validDate=v=>/^\d{4}-\d{2}-\d{2}$/.test(String(v||''));
+
+function migratedSemesterStart(date,{targetType='all',targetProfileIds=[],suffix=''}={}){
+  return{
+    id:`legacy_semester_start_${String(date).replaceAll('-','')}${suffix?`_${suffix}`:''}`,
+    date:String(date),type:'semester_start',name:'學期冒險開始（由 1.0 匯入）',allDay:true,startTime:'',endTime:'',note:'',reminderMinutes:0,
+    targetType,targetProfileIds:targetType==='selected'?[...targetProfileIds]:[],requireComplete:false,completedBy:{},creatorRole:'system',creatorProfileId:'system'
+  };
+}
 
 function migrateHero(raw={},fallback={}){
   const stats=raw.stats&&typeof raw.stats==='object'?raw.stats:{};
@@ -24,6 +33,9 @@ function migrateHero(raw={},fallback={}){
 
 function migrateCampaignProgress(raw={}){
   const progress=object(raw.campaignProgress);
+  delete progress.semesterStartDate;
+  delete progress.lastAppliedSemesterEventDate;
+  delete progress.previousSemesterStartDate;
   if(!progress.phaseHistory||typeof progress.phaseHistory!=='object'||Array.isArray(progress.phaseHistory))progress.phaseHistory={};
   const legacyRatio=Number(raw.storyFlags?.demonKingPhase1DamageRatio);
   if(Number.isFinite(legacyRatio)){
@@ -42,7 +54,7 @@ function migrateGame(raw={},fallback={}){
   const semester=raw.semester&&typeof raw.semester==='object'?raw.semester:{},settings=raw.settings&&typeof raw.settings==='object'?raw.settings:{};
   return {
     ...fallback,hero:migrateHero(raw.hero||{},fallback.hero||{}),
-    semester:{...fallback.semester,startDate:String(semester.startDate||fallback.semester?.startDate||''),endDate:String(semester.endDate||fallback.semester?.endDate||''),schoolWeekdays:Array.isArray(semester.schoolWeekdays)?semester.schoolWeekdays.map(Number):clone(fallback.semester?.schoolWeekdays||[1,2,3,4,5]),worldState:String(semester.worldState||fallback.semester?.worldState||'normal')},
+    semester:{...fallback.semester,endDate:String(semester.endDate||fallback.semester?.endDate||''),schoolWeekdays:Array.isArray(semester.schoolWeekdays)?semester.schoolWeekdays.map(Number):clone(fallback.semester?.schoolWeekdays||[1,2,3,4,5]),worldState:String(semester.worldState||fallback.semester?.worldState||'normal'),midtermResult:String(semester.midtermResult||fallback.semester?.midtermResult||'')},
     tasks:array(raw.tasks),taskRecords:array(raw.taskRecords),activeTasks:{},learningProgress:array(raw.learningProgress),
     inventory,inventoryTombstones:tombstones,shopItems:array(raw.shopItems),lotteryPool:array(raw.lotteryPool),lotteryCoinLedger:object(raw.lotteryCoinLedger),assetAudit:object(raw.assetAudit),couponRequests:array(raw.couponRequests),battleRecords:array(raw.battleRecords),gmAudit:array(raw.gmAudit),semesterArchives:array(raw.semesterArchives),campaignProgress:migrateCampaignProgress(raw),
     storyFlags:object(raw.storyFlags),holidayTower:object(raw.holidayTower),balanceSettings:{...object(fallback.balanceSettings),...object(raw.balanceSettings)},semesterGearBaseline:clone(raw.semesterGearBaseline||null),uniqueEquipmentDefinitions:object(raw.uniqueEquipmentDefinitions),
@@ -54,6 +66,29 @@ function migrateGame(raw={},fallback={}){
   };
 }
 
+function migrateAdventureCalendar(rawFamily,baseFamily){
+  const calendar=Array.isArray(rawFamily?.adventureCalendar)?array(rawFamily.adventureCalendar):[];
+  if(calendar.some(e=>e?.type==='semester_start'&&validDate(e.date)))return calendar;
+
+  const rawProfiles=Array.isArray(rawFamily?.profiles)?rawFamily.profiles:[],byDate=new Map();
+  rawProfiles.forEach((p,i)=>{
+    const date=String(p?.data?.semester?.startDate||'');if(!validDate(date))return;
+    const id=String(p?.id||`hero_${i+1}`);if(!byDate.has(date))byDate.set(date,[]);byDate.get(date).push(id);
+  });
+  if(byDate.size){
+    let n=0;
+    for(const [date,ids] of byDate){
+      const all=ids.length===rawProfiles.length;
+      calendar.push(migratedSemesterStart(date,{targetType:all?'all':'selected',targetProfileIds:ids,suffix:String(++n)}));
+    }
+    return calendar;
+  }
+
+  const fallbackStart=(baseFamily.adventureCalendar||[]).find(e=>e?.type==='semester_start'&&validDate(e.date));
+  if(fallbackStart)calendar.push(clone(fallbackStart));
+  return calendar;
+}
+
 function migrateFamily(rawFamily){
   const base=createDefaultState(),baseGame=base.family.profiles[0].data;
   const profiles=(rawFamily?.profiles||[]).map((p,i)=>({id:String(p.id||`hero_${i+1}`),label:String(p.label||p.data?.hero?.name||`勇者${i+1}`),data:migrateGame(p.data||{},baseGame)}));
@@ -63,7 +98,7 @@ function migrateFamily(rawFamily){
     profiles:safeProfiles,
     examSubjects:Array.isArray(rawFamily?.examSubjects)&&rawFamily.examSubjects.length?array(rawFamily.examSubjects):clone(base.family.examSubjects),
     schoolTimetable:Array.isArray(rawFamily?.schoolTimetable)?array(rawFamily.schoolTimetable):clone(base.family.schoolTimetable),
-    adventureCalendar:Array.isArray(rawFamily?.adventureCalendar)?array(rawFamily.adventureCalendar):clone(base.family.adventureCalendar),
+    adventureCalendar:migrateAdventureCalendar(rawFamily,base.family),
     access:object(rawFamily?.access),
     legacySeasonId:String(rawFamily?.seasonId||APP_CONFIG.legacySeasonId)
   };
@@ -80,6 +115,11 @@ export function readLegacyState(){
     const state=createDefaultState();state.source='1.0-single-save-readonly';state.importedAt=new Date().toISOString();
     state.family.profiles[0].data=migrateGame(single,state.family.profiles[0].data);
     state.family.profiles[0].label=state.family.profiles[0].data.hero.name||'勇者';
+    const legacyStart=String(single.semester?.startDate||'');
+    if(validDate(legacyStart)){
+      state.family.adventureCalendar=state.family.adventureCalendar.filter(e=>e?.type!=='semester_start');
+      state.family.adventureCalendar.push(migratedSemesterStart(legacyStart));
+    }
     return state;
   }
   return null;
