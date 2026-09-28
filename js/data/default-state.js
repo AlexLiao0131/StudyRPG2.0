@@ -12,19 +12,19 @@ function defaultGame(){
       skillUsage:{},skillUsageByDate:{},jobCandidateHistory:[],
       pendingGoldDebt:0,lastStatGains:{},equipment:{weapon:null,head:null,body:null,accessory:null}
     },
-    semester:{startDate:'2026-08-31',endDate:'2027-01-20',schoolWeekdays:[1,2,3,4,5],worldState:'normal'},
+    semester:{endDate:'2027-01-20',schoolWeekdays:[1,2,3,4,5],worldState:'normal'},
     tasks:[
       {id:'task_chinese',name:'國語複習',category:'study',difficulty:'normal',taskType:'timer',rewardMode:'auto',courseId:'chinese',subject:'國語',recurring:true,weekdays:[1,2,3,4,5],active:true,archived:false,activeFrom:'2026-08-31',activeUntil:'',timerMode:'deadline',standardMinutes:40,fastMinutes:25,goldReward:2,expReward:10,dailyLimit:1,cancelledDates:[]},
       {id:'task_math',name:'數學複習',category:'study',difficulty:'normal',taskType:'timer',rewardMode:'auto',courseId:'math',subject:'數學',recurring:true,weekdays:[1,2,3,4,5],active:true,archived:false,activeFrom:'2026-08-31',activeUntil:'',timerMode:'deadline',standardMinutes:40,fastMinutes:25,goldReward:2,expReward:10,dailyLimit:1,cancelledDates:[]}
     ],
     taskRecords:[],activeTasks:{},learningProgress:[],
     inventory:[],inventoryTombstones:{},shopItems:[],lotteryPool:[],lotteryCoinLedger:{},assetAudit:{},couponRequests:[],battleRecords:[],gmAudit:[],semesterArchives:[],
-    campaignProgress:{phaseHistory:{},cycle:1,mode:'semester',semesterStartDate:'2026-08-31'},
+    campaignProgress:{phaseHistory:{},cycle:1,mode:'semester'},
     storyFlags:{},holidayTower:{date:'',runsUsed:0,bestFloor:0},balanceSettings:{gearCarryRate:.55},semesterGearBaseline:null,uniqueEquipmentDefinitions:{},
     social:{friends:[],inbox:[]},
     settings:{parentPinHash:'',cloud:{},familyAccess:{enabled:true},holidayTower:{dailyLimit:3}},
     dailyBalance:null,
-    examBossBaseline:{date:'2026-08-31',nakedPower:40,createdAt:'2026-08-31T00:00:00.000Z'},
+    examBossBaseline:{date:'2026-08-31',semesterEventId:'start',nakedPower:40,createdAt:'2026-08-31T00:00:00.000Z'},
     examCompletionTargets:{}
   };
 }
