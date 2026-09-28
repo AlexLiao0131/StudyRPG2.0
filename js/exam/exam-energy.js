@@ -1,5 +1,6 @@
 import { getFamily, getGame, save } from '../core/store.js';
 import { localDateString, parseLocalDate } from '../core/date.js';
+import { semesterWindowForDate } from '../calendar/calendar-service.js';
 import { taskPowerGain } from '../progression/combat-power.js';
 
 const LEARNING_CATEGORIES=new Set(['study','exam_paper','school_reading']);
@@ -7,23 +8,24 @@ const TARGET_COMPLETION=.75;
 
 export function examSubjects(){return getFamily().examSubjects||[]}
 export function examSubjectById(id){return examSubjects().find(s=>String(s.id)===String(id))||null}
-function visibleExamEvents(){
-  const start=getGame().semester?.startDate||'0000-00-00',pid=getFamily().activeProfileId;
+function visibleExamEvents(referenceDate=localDateString()){
+  const {startDate,nextStartDate}=semesterWindowForDate(referenceDate),pid=getFamily().activeProfileId;
+  if(!startDate)return[];
   return (getFamily().adventureCalendar||[]).filter(e=>
-    ['midterm','final'].includes(e.type)&&e.date>=start&&
+    ['midterm','final'].includes(e.type)&&e.date>=startDate&&(!nextStartDate||e.date<nextStartDate)&&
     (e.targetType!=='selected'||(e.targetProfileIds||[]).includes(pid))
   );
 }
-export function examEventsForType(type){return visibleExamEvents().filter(e=>e.type===type).slice().sort((a,b)=>a.date.localeCompare(b.date))}
+export function examEventsForType(type,dateStr=localDateString()){return visibleExamEvents(dateStr).filter(e=>e.type===type).slice().sort((a,b)=>a.date.localeCompare(b.date))}
 export function examEventForDate(dateStr=localDateString()){
-  return visibleExamEvents().find(e=>e.date===dateStr)||null;
+  return visibleExamEvents(dateStr).find(e=>e.date===dateStr)||null;
 }
 export function eventSubjectIds(evt){
   const ids=(evt?.examSubjectIds||[]).filter(id=>examSubjectById(id));
   return ids.length?ids:examSubjects().map(s=>s.id);
 }
 function isHoliday(ds){return (getFamily().adventureCalendar||[]).some(e=>e.date===ds&&e.type==='holiday')}
-function studyMinutesUntil(dateStr,ids,startStr=getGame().semester?.startDate||localDateString()){
+function studyMinutesUntil(dateStr,ids,startStr=semesterWindowForDate(dateStr).startDate||dateStr){
   const out=Object.fromEntries(ids.map(id=>[id,0])),a=parseLocalDate(startStr),b=parseLocalDate(dateStr);if(b<=a)return out;
   for(let d=new Date(a);d<b;d.setDate(d.getDate()+1)){
     const ds=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -47,13 +49,14 @@ function subjectPowerRates(ids){
   return Object.fromEntries(ids.map(id=>[id,pools[id].length?pools[id].reduce((a,b)=>a+b,0)/pools[id].length:shared]));
 }
 function targetSnapshot(evt){
-  const g=getGame(),ids=eventSubjectIds(evt),key=String(evt.id||`${evt.type}_${evt.date}`),semesterStart=g.semester?.startDate||'2026-08-31';
+  const g=getGame(),ids=eventSubjectIds(evt),key=String(evt.id||`${evt.type}_${evt.date}`),window=semesterWindowForDate(evt.date),
+    sourceSemesterEventId=String(window.event?.id||''),sourceSemesterDate=String(window.startDate||evt.date);
   g.examCompletionTargets=g.examCompletionTargets||{};let snap=g.examCompletionTargets[key];
-  const same=snap&&snap.semesterStart===semesterStart&&snap.examDate===evt.date&&Array.isArray(snap.subjectIds)&&ids.every(id=>snap.subjectIds.includes(id))&&snap.subjectIds.length===ids.length;
+  const same=snap&&snap.sourceSemesterEventId===sourceSemesterEventId&&snap.sourceSemesterDate===sourceSemesterDate&&snap.examDate===evt.date&&Array.isArray(snap.subjectIds)&&ids.every(id=>snap.subjectIds.includes(id))&&snap.subjectIds.length===ids.length;
   if(!same){
-    const minutes=studyMinutesUntil(evt.date,ids,semesterStart),rates=subjectPowerRates(ids),
+    const minutes=studyMinutesUntil(evt.date,ids,sourceSemesterDate),rates=subjectPowerRates(ids),
       required=Object.fromEntries(ids.map(id=>[id,Math.max(0,(minutes[id]/60)*(rates[id]||0)*TARGET_COMPLETION)]));
-    snap={semesterStart,examDate:evt.date,subjectIds:[...ids],minutes,rates,required,createdAt:new Date().toISOString()};
+    snap={sourceSemesterEventId,sourceSemesterDate,examDate:evt.date,subjectIds:[...ids],minutes,rates,required,createdAt:new Date().toISOString()};
     g.examCompletionTargets[key]=snap;save();
   }
   return snap;
@@ -70,7 +73,7 @@ function courseShares(t,ids){
 }
 export function examEnergyReport(evt){
   if(!evt)return{required:0,approved:0,ratio:0,byCourse:{}};
-  const g=getGame(),ids=eventSubjectIds(evt),base=g.semester?.startDate||'2026-08-31',
+  const g=getGame(),ids=eventSubjectIds(evt),base=semesterWindowForDate(evt.date).startDate||evt.date,
     end=localDateString()<evt.date?localDateString():evt.date,snap=targetSnapshot(evt),
     byCourse=Object.fromEntries(ids.map(id=>[id,{name:examSubjectById(id)?.name||id,approved:0,required:Math.max(0,Number(snap.required?.[id])||0)}]));
   (g.taskRecords||[]).forEach(r=>{
