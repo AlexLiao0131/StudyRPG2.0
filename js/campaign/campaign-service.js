@@ -1,5 +1,6 @@
-import { getFamily, getGame, save } from '../core/store.js';
+import { getGame, save } from '../core/store.js';
 import { localDateString } from '../core/date.js';
+import { semesterStartEvents, semesterWindowForDate } from '../calendar/calendar-service.js';
 import { combatPower } from '../progression/combat-power.js';
 import { equippedEquipmentPowerScore } from '../equipment/equipment-service.js';
 import { currentCampaignCycle, currentCampaignMode } from './endgame-service.js';
@@ -7,20 +8,15 @@ import { currentCampaignCycle, currentCampaignMode } from './endgame-service.js'
 const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
 const object=v=>v&&typeof v==='object'&&!Array.isArray(v)?v:{};
 
-function visibleToActiveProfile(event){
-  const profileId=getFamily()?.activeProfileId;
-  return event?.targetType!=='selected'||(event?.targetProfileIds||[]).includes(profileId);
-}
-
-function semesterStarts(dateStr=localDateString()){
-  return (getFamily()?.adventureCalendar||[])
-    .filter(e=>e?.type==='semester_start'&&e?.date&&e.date<=dateStr&&visibleToActiveProfile(e))
-    .slice()
-    .sort((a,b)=>(a.date+String(a.id||'')).localeCompare(b.date+String(b.id||'')));
-}
-
 function activeSemesterEvent(dateStr=localDateString()){
-  return semesterStarts(dateStr).at(-1)||null;
+  return semesterWindowForDate(dateStr).event||null;
+}
+
+function previousSemesterEvent(event){
+  const starts=semesterStartEvents(),id=String(event?.id||''),date=String(event?.date||'');
+  let index=starts.findIndex(e=>String(e.id||'')===id);
+  if(index<0)index=starts.findIndex(e=>String(e.date||'')===date);
+  return index>0?starts[index-1]:null;
 }
 
 function battleRowsForPeriod(game,startDate,endDate){
@@ -83,6 +79,7 @@ function resetSemesterScopedRuntime(game,event,cycle){
   game.examCompletionTargets={};
   game.examBossBaseline={
     date:String(event.date||''),
+    semesterEventId:String(event.id||''),
     nakedPower:Math.max(1,combatPower(game.hero)),
     createdAt:new Date().toISOString(),
     equipmentExcluded:true,
@@ -97,12 +94,14 @@ function adoptExistingSemester(game,event,cycle){
   progress.phaseHistory=object(progress.phaseHistory);
   progress.cycle=cycle;
   progress.mode=currentCampaignMode(event.date);
-  progress.semesterStartDate=String(event.date||game.semester?.startDate||'');
   progress.lastAppliedSemesterEventId=String(event.id||'');
-  progress.lastAppliedSemesterEventDate=String(event.date||'');
   progress.lifecycleInitializedAt=progress.lifecycleInitializedAt||new Date().toISOString();
   game.semester=object(game.semester);
-  game.semester.startDate=String(event.date||game.semester.startDate||'');
+  if(game.examBossBaseline&&typeof game.examBossBaseline==='object'){
+    game.examBossBaseline.date=String(event.date||'');
+    game.examBossBaseline.semesterEventId=String(event.id||'');
+    game.examBossBaseline.cycle=cycle;
+  }
   if(cycle>1&&(!game.semesterGearBaseline||Number(game.semesterGearBaseline.cycle)!==cycle))captureSemesterGearBaseline(game,cycle,event);
 }
 
@@ -111,21 +110,20 @@ function rebaseAppliedSemester(game,event,cycle){
   progress.phaseHistory=object(progress.phaseHistory);
   progress.cycle=cycle;
   progress.mode='semester';
-  progress.semesterStartDate=String(event.date||'');
-  progress.lastAppliedSemesterEventDate=String(event.date||'');
+  progress.lastAppliedSemesterEventId=String(event.id||'');
   progress.lastSemesterRebasedAt=new Date().toISOString();
-  game.semester=object(game.semester);game.semester.startDate=String(event.date||'');
+  game.semester=object(game.semester);
   if(game.semester?.endDate&&game.semester.endDate<event.date)game.semester.endDate='';
   game.dailyBalance=null;game.examCompletionTargets={};progress.examBossLocks={};
-  if(game.examBossBaseline){game.examBossBaseline.date=String(event.date||'');game.examBossBaseline.cycle=cycle}
+  if(game.examBossBaseline){game.examBossBaseline.date=String(event.date||'');game.examBossBaseline.semesterEventId=String(event.id||'');game.examBossBaseline.cycle=cycle}
   if(game.semesterGearBaseline&&Number(game.semesterGearBaseline.cycle)===cycle){game.semesterGearBaseline.date=String(event.date||'');game.semesterGearBaseline.semesterEventId=String(event.id||'')}
 }
 
 function transitionToSemester(game,event,cycle){
-  const progress=game.campaignProgress=object(game.campaignProgress),previousStart=String(progress.semesterStartDate||game.semester?.startDate||''),previousCycle=Math.max(1,Number(progress.cycle)||Math.max(1,cycle-1));
+  const progress=game.campaignProgress=object(game.campaignProgress),previousEvent=previousSemesterEvent(event),previousStart=String(previousEvent?.date||''),previousCycle=Math.max(1,Number(progress.cycle)||Math.max(1,cycle-1));
   game.semesterArchives=Array.isArray(game.semesterArchives)?game.semesterArchives:[];
   const id=archiveId(event);
-  if(!game.semesterArchives.some(x=>String(x?.id)===id))game.semesterArchives.push(buildArchive(game,event,{previousStart,previousCycle}));
+  if(previousStart&&!game.semesterArchives.some(x=>String(x?.id)===id))game.semesterArchives.push(buildArchive(game,event,{previousStart,previousCycle}));
 
   const phaseHistory=object(progress.phaseHistory);
   game.campaignProgress={
@@ -134,17 +132,18 @@ function transitionToSemester(game,event,cycle){
     examBossLocks:{},
     cycle,
     mode:'semester',
-    semesterStartDate:String(event.date||''),
     lastAppliedSemesterEventId:String(event.id||''),
-    lastAppliedSemesterEventDate:String(event.date||''),
     lastTransitionAt:new Date().toISOString(),
-    previousSemesterStartDate:previousStart,
     previousCycle
   };
-  game.semester=object(game.semester);game.semester.startDate=String(event.date||'');game.semester.worldState='normal';
+  game.semester=object(game.semester);game.semester.worldState='normal';
   if(game.semester.endDate&&game.semester.endDate<event.date)game.semester.endDate='';
   resetSemesterScopedRuntime(game,event,cycle);
   captureSemesterGearBaseline(game,cycle,event);
+}
+
+function baselineMatchesSemester(game,event){
+  return String(game.examBossBaseline?.semesterEventId||'')===String(event?.id||'')&&String(game.examBossBaseline?.date||'')===String(event?.date||'');
 }
 
 export function applyCampaignLifecycle(dateStr=localDateString()){
@@ -153,12 +152,10 @@ export function applyCampaignLifecycle(dateStr=localDateString()){
   let changed=false,reason='current';
 
   if(!appliedId){
-    const sameSemester=String(game.semester?.startDate||'')===String(event.date||'');
-    if(sameSemester){adoptExistingSemester(game,event,cycle);reason='adopted-existing';changed=true}
-    else{transitionToSemester(game,event,cycle);reason='transitioned';changed=true}
+    adoptExistingSemester(game,event,cycle);reason='adopted-existing';changed=true;
   }else if(appliedId!==eventId){
     transitionToSemester(game,event,cycle);reason='transitioned';changed=true;
-  }else if(String(progress.lastAppliedSemesterEventDate||progress.semesterStartDate||'')!==String(event.date||'')){
+  }else if(!baselineMatchesSemester(game,event)){
     rebaseAppliedSemester(game,event,cycle);reason='rebased-current';changed=true;
   }else{
     const mode=currentCampaignMode(dateStr);if(progress.mode!==mode){progress.mode=mode;changed=true;reason='mode-synced'}
@@ -170,14 +167,14 @@ export function applyCampaignLifecycle(dateStr=localDateString()){
 }
 
 export function campaignLifecycleSnapshot(dateStr=localDateString()){
-  const game=getGame(),event=activeSemesterEvent(dateStr),cycle=Math.max(1,currentCampaignCycle(dateStr));
+  const game=getGame(),event=activeSemesterEvent(dateStr),cycle=Math.max(1,currentCampaignCycle(dateStr)),appliedId=String(game.campaignProgress?.lastAppliedSemesterEventId||''),appliedEvent=semesterStartEvents().find(e=>String(e.id||'')===appliedId)||null;
   return{
     cycle,
     mode:currentCampaignMode(dateStr),
     eventId:String(event?.id||''),
-    startDate:String(event?.date||game.semester?.startDate||''),
-    appliedEventId:String(game.campaignProgress?.lastAppliedSemesterEventId||''),
-    appliedEventDate:String(game.campaignProgress?.lastAppliedSemesterEventDate||game.campaignProgress?.semesterStartDate||''),
+    startDate:String(event?.date||''),
+    appliedEventId:appliedId,
+    appliedEventDate:String(appliedEvent?.date||''),
     archiveCount:(game.semesterArchives||[]).length,
     latestArchive:(game.semesterArchives||[]).at(-1)||null,
     gearBaseline:clone(game.semesterGearBaseline||null)

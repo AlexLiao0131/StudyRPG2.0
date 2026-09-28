@@ -1,5 +1,6 @@
-import { getFamily, getGame, save } from '../core/store.js';
+import { getGame, save } from '../core/store.js';
 import { localDateString } from '../core/date.js';
+import { visibleCalendar, semesterStartEvents, semesterWindowForDate } from '../calendar/calendar-service.js';
 import { WEEKLY_WORLDS } from '../world/world-database.js';
 import { monsterDef } from '../battle/monster-database.js';
 import { combatPower } from '../progression/combat-power.js';
@@ -8,8 +9,7 @@ import { equippedEquipmentPowerScore } from '../equipment/equipment-service.js';
 const CAMPAIGN_TYPES=new Set(['winter_break_start','summer_break_start','semester_start']);
 
 function campaignEvents(dateStr=localDateString()){
-  const family=getFamily(),profileId=family?.activeProfileId;
-  return (family?.adventureCalendar||[]).filter(e=>e?.date&&e.date<=dateStr&&CAMPAIGN_TYPES.has(e.type)&&(e.targetType!=='selected'||(e.targetProfileIds||[]).includes(profileId))).slice().sort((a,b)=>(a.date+String(a.id||'')).localeCompare(b.date+String(b.id||'')));
+  return visibleCalendar().filter(e=>e?.date&&e.date<=dateStr&&CAMPAIGN_TYPES.has(e.type));
 }
 
 export function currentCampaignMode(dateStr=localDateString()){
@@ -18,7 +18,7 @@ export function currentCampaignMode(dateStr=localDateString()){
 }
 
 export function currentCampaignCycle(dateStr=localDateString()){
-  const starts=campaignEvents(dateStr).filter(e=>e.type==='semester_start'),stored=Math.max(1,Number(getGame().campaignProgress?.cycle)||1);if(!starts.length)return stored;
+  const starts=semesterStartEvents().filter(e=>e.date<=dateStr),stored=Math.max(1,Number(getGame().campaignProgress?.cycle)||1);if(!starts.length)return stored;
   let cycle=1;for(let i=1;i<starts.length;i++)cycle=starts[i].semesterMode==='standard'?1:cycle+1;
   return starts.length<2&&stored>1?stored:cycle;
 }
@@ -68,7 +68,10 @@ export function recordTowerFloorClear(game,floor){
 
 export function ensureSemesterGearBaseline(dateStr=localDateString(),game=getGame()){
   const cycle=currentCampaignCycle(dateStr);if(cycle<=1)return null;game.balanceSettings=game.balanceSettings&&typeof game.balanceSettings==='object'?game.balanceSettings:{};if(!Number.isFinite(Number(game.balanceSettings.gearCarryRate)))game.balanceSettings.gearCarryRate=.55;
-  if(!game.semesterGearBaseline||Number(game.semesterGearBaseline.cycle)!==cycle){game.semesterGearBaseline={cycle,equipmentScore:equippedEquipmentPowerScore(game),capturedAt:new Date().toISOString(),date:dateStr};save()}
+  if(!game.semesterGearBaseline||Number(game.semesterGearBaseline.cycle)!==cycle){
+    const window=semesterWindowForDate(dateStr);
+    game.semesterGearBaseline={cycle,equipmentScore:equippedEquipmentPowerScore(game),capturedAt:new Date().toISOString(),date:window.startDate||dateStr,semesterEventId:String(window.event?.id||'')};save();
+  }
   return game.semesterGearBaseline;
 }
 
