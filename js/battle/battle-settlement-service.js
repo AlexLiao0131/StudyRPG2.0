@@ -2,6 +2,7 @@ import { getGame, update } from '../core/store.js';
 import { localDateString } from '../core/date.js';
 import { grantRewardBundle } from '../progression/reward-service.js';
 import { ensureEconomyCatalog, shopItemCategory, adjustLotteryCoins } from '../economy/economy-service.js';
+import { examEventsForType } from '../exam/exam-energy.js';
 import { monsterDef } from './monster-database.js';
 import { recordPhaseBattle } from './phase-service.js';
 import { equipmentDropSource, grantEquipmentDrop, rollEquipmentDrop } from '../equipment/equipment-service.js';
@@ -14,6 +15,11 @@ function rewardFor(engine){
     return{gold:Math.max(2,Math.floor(floor/3)),exp:Math.max(10,floor*3)};
   }
   return{gold:15,exp:15};
+}
+
+function isFinalExamDay(type,date){
+  const events=examEventsForType(type);
+  return events.length>0&&events[events.length-1]?.date===date;
 }
 
 // Canonical 1.0 battle rating formula.
@@ -157,6 +163,15 @@ export function settleBattle(engine,result){
         eventType:engine.eventType,
         scopeKey:engine.phaseScopeKey
       });
+    }
+
+    // Canonical 1.0 semester transition: the final configured midterm day
+    // moves the world into the ruined state and remembers that day's result.
+    // This happens on both win and loss, exactly like setWorldAfterMidterm().
+    if(engine.eventType==='midterm'&&isFinalExamDay('midterm',date)){
+      g.semester=g.semester&&typeof g.semester==='object'?g.semester:{};
+      g.semester.worldState='ruined';
+      g.semester.midtermResult=win?'win':'lose';
     }
 
     const record={
