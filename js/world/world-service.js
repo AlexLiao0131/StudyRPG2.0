@@ -1,11 +1,10 @@
 import { localDateString, parseLocalDate } from '../core/date.js';
-import { getFamily, getGame } from '../core/store.js';
+import { activeSemesterStartDate as calendarSemesterStartDate } from '../calendar/calendar-service.js';
 import { monsterDef } from '../battle/monster-database.js';
 import { WEEKLY_WORLDS } from './world-database.js';
 
 export function activeSemesterStartDate(dateStr=localDateString()){
-  const family=getFamily(),profileId=family?.activeProfileId,starts=(family?.adventureCalendar||[]).filter(e=>e?.type==='semester_start'&&e.date&&e.date<=dateStr&&(e.targetType!=='selected'||(e.targetProfileIds||[]).includes(profileId))).slice().sort((a,b)=>(a.date+String(a.id||'')).localeCompare(b.date+String(b.id||'')));
-  return starts.at(-1)?.date||getGame().semester?.startDate||dateStr;
+  return calendarSemesterStartDate(dateStr);
 }
 export function semesterWeekIndex(dateStr=localDateString()){
   const start=parseLocalDate(activeSemesterStartDate(dateStr)),now=parseLocalDate(dateStr);
