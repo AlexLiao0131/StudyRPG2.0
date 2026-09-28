@@ -19,6 +19,34 @@ export function monsterAI(db,monsterId){
 }
 export function monsterSkill(db,skillId){return db?.monsterSkills?.[skillId]||null}
 
+// Canonical 1.0 enemy MP rules (V10.11.13).
+// Skill definitions stay in the 1.0 monsterSkills DB; this only restores the
+// runtime cost semantics that 1.0 applied around those definitions.
+export function enemySkillMpCost(skill){
+  if(!skill||skill.id==='basic_attack'||skill.id==='summon_basic')return 0;
+  if(Number.isFinite(Number(skill.mpCost)))return Math.max(0,Number(skill.mpCost));
+  if(skill.kind==='magic')return 16;
+  if(skill.kind==='heal')return 20;
+  if(skill.kind==='debuff')return 14;
+  if(['buff','shield','charge'].includes(skill.kind))return 12;
+  if(skill.kind==='summon')return 25;
+  if(skill.kind==='physical'&&skill.status)return 10;
+  if(skill.kind==='physical'&&Number(skill.multiplier||1)>1.05)return 8;
+  return 0;
+}
+
+// Canonical 1.0 self-buff semantics. Some old monster skills intentionally
+// kept their numeric runtime meaning outside skill-database.js; do not create
+// a second skill database just to duplicate those definitions.
+export function monsterSelfBuffMods(skill,unit){
+  const mods={};
+  if(skill?.damageTakenMultiplier!=null)mods.damageTaken=Number(skill.damageTakenMultiplier)-1;
+  else if(skill?.id==='golden_shield'||skill?.id==='mana_shield')mods.damageTaken=-.35;
+  if(skill?.atkMultiplier!=null)mods.attack=Number(unit?.attack||0)*(Number(skill.atkMultiplier)-1);
+  if(skill?.evasionBonus!=null)mods.evade=Number(skill.evasionBonus);
+  return mods;
+}
+
 export function isMagicCaster(db,monsterId){
   const ai=monsterAI(db,monsterId),defs=[];
   for(const e of ai.skills||[]){const s=monsterSkill(db,e.id);if(s)defs.push(s)}
@@ -45,6 +73,7 @@ export function skillUsable(engine,unit,entry,skill){
   if(skill.conditionHpBelow!=null&&unit.hp/unit.maxHp>Number(skill.conditionHpBelow))return false;
   if(entry?.condition==='low_hp'&&unit.hp/unit.maxHp>Number(entry.threshold||skill.conditionHpBelow||.4))return false;
   if(skill.cannotUseConsecutively&&unit.lastSkillId===skill.id)return false;
+  if(Number(unit.mp||0)<enemySkillMpCost(skill))return false;
   if(skill.kind==='summon'&&!engine.canUseSummonSkill(unit,skill))return false;
 
   const ai=monsterAI(engine?.content,unit.monsterId);
@@ -63,7 +92,7 @@ export function chooseEnemySkill(engine,unit){
 
   if(unit.chargedSkill){
     const charged=monsterSkill(db,unit.chargedSkill);
-    if(charged)return charged;
+    if(charged&&skillUsable(engine,unit,{id:charged.id},charged))return charged;
   }
 
   for(const id of ai.triggerSkills||[]){
